@@ -1,0 +1,17 @@
+# Monorepo-level ignores. Server-specific (Maven/Java) lives in server/.gitignore;
+# Flutter's client/.gitignore is created by `flutter create`.
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Env
+.env
+.env.local
