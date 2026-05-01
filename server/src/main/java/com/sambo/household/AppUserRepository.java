@@ -11,4 +11,6 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     Optional<AppUser> findByEmail(String email);
 
     List<AppUser> findByHouseholdId(UUID householdId);
+
+    long countByHouseholdIdAndIdNot(UUID householdId, UUID excludeUserId);
 }

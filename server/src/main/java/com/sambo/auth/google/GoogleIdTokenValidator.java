@@ -82,7 +82,7 @@ public class GoogleIdTokenValidator {
     private static Payload tryParsePayload(String idTokenString) {
         try {
             return GoogleIdToken.parse(new GsonFactory(), idTokenString).getPayload();
-        } catch (Exception ignored) {
+        } catch (IOException | IllegalArgumentException ignored) {
             return null;
         }
     }

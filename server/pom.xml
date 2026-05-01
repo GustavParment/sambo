@@ -60,6 +60,17 @@
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+
+		<!-- Cloud SQL Postgres socket factory. Active only when the JDBC URL
+		     contains cloudSqlInstance=…&socketFactory=com.google.cloud.sql.postgres.SocketFactory.
+		     Locally (jdbc:postgresql://localhost:5432/…) it's just an unused jar.
+		     Lets Cloud Run reach Cloud SQL without a sidecar proxy. -->
+		<dependency>
+			<groupId>com.google.cloud.sql</groupId>
+			<artifactId>postgres-socket-factory</artifactId>
+			<version>1.28.3</version>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>

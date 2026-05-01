@@ -1,0 +1,22 @@
+# Keep the build context lean — speeds up `docker build` and `gcloud builds submit`.
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+*.iml
+
+# Local build artefacts
+target/
+build/
+*.log
+
+# Secrets — never end up in an image even by accident.
+.env
+.env.*
+!.env.example
+
+# Tests + docs aren't needed for the runtime jar (tests are skipped in build).
+src/test/
+HELP.md
+README*.md

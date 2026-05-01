@@ -62,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Delad budget och städlista',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyLarge?.copyWith(
-                      color: SamboAppColors.onSurfaceVariant,
+                      color: Colors.white,
                       height: 1.4,
                     ),
                   ),
@@ -117,7 +117,7 @@ class _LoginBackdrop extends StatelessWidget {
       top: 0,
       left: 0,
       right: 0,
-      height: size.height * 0.55,
+      height: size.height * 0.65,
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -129,8 +129,8 @@ class _LoginBackdrop extends StatelessWidget {
             ],
           ),
           borderRadius: BorderRadius.only(
-            bottomLeft: Radius.elliptical(size.width / 2, 110),
-            bottomRight: Radius.elliptical(size.width / 2, 110),
+            bottomLeft: Radius.elliptical(size.width / 2, 50),
+            bottomRight: Radius.elliptical(size.width / 2, 50),
           ),
         ),
       ),

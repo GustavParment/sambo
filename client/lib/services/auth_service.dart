@@ -69,10 +69,17 @@ class AuthService {
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    _token = body['accessToken'] as String;
-    final u = AuthUser.fromJson(body['user'] as Map<String, dynamic>);
+    final newToken = body['accessToken'] as String;
+    final newUser = AuthUser.fromJson(body['user'] as Map<String, dynamic>);
+    await setSession(newToken, newUser);
+  }
 
-    await _storage.write(key: _tokenKey, value: _token);
+  /// Atomically swap the active session — used both by Google login and by
+  /// flows that issue a *new* JWT for the same user (e.g. accepting an
+  /// invite, which moves the user to a different household).
+  Future<void> setSession(String jwt, AuthUser u) async {
+    _token = jwt;
+    await _storage.write(key: _tokenKey, value: jwt);
     await _storage.write(key: _userKey, value: jsonEncode(u.toJson()));
     user.value = u;
   }

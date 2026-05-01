@@ -71,9 +71,37 @@ class SamboTheme {
         extendedPadding: EdgeInsets.symmetric(horizontal: 20),
       ),
 
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return SamboAppColors.primary;
+            }
+            return Colors.transparent;
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return SamboAppColors.onPrimary;
+            }
+            return SamboAppColors.onSurfaceVariant;
+          }),
+          iconColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return SamboAppColors.onPrimary;
+            }
+            return SamboAppColors.onSurfaceVariant;
+          }),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: SamboAppColors.outline.withValues(alpha: 0.6)),
+          ),
+        ),
+      ),
+
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: SamboAppColors.surface,
-        indicatorColor: SamboAppColors.primary.withValues(alpha: 0.18),
+        // No pill behind selected icon — colour change on the icon + label is
+        // signal enough.
+        indicatorColor: Colors.transparent,
         elevation: 0,
         height: 72,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {

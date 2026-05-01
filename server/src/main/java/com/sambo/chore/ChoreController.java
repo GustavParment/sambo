@@ -2,6 +2,7 @@ package com.sambo.chore;
 
 import com.sambo.auth.jwt.SamboPrincipal;
 import com.sambo.chore.dto.ChoreDto;
+import com.sambo.chore.dto.CompleteChoreRequest;
 import com.sambo.chore.dto.CreateChoreRequest;
 import com.sambo.household.Role;
 import jakarta.validation.Valid;
@@ -27,27 +28,54 @@ public class ChoreController {
 
     private final ChoreService choreService;
 
+    /** Default = active chores only. {@code ?archived=true} returns archived ones. */
     @GetMapping
-    public List<ChoreDto> list(@AuthenticationPrincipal SamboPrincipal principal) {
-        return choreService.listForHousehold(principal.householdId());
+    public List<ChoreDto> list(
+        @AuthenticationPrincipal SamboPrincipal principal,
+        @RequestParam(defaultValue = "false") boolean archived
+    ) {
+        UUID hid = principal.householdId();
+        return archived ? choreService.listArchived(hid) : choreService.listForHousehold(hid);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('" + "ADMIN" + "')")
     public ChoreDto create(
         @AuthenticationPrincipal SamboPrincipal principal,
         @Valid @RequestBody CreateChoreRequest req
     ) {
-        return choreService.create(principal.householdId(), req.name());
+        return choreService.create(
+            principal.householdId(), req.name(),
+            req.lastCompletedAt(), req.scheduledFor());
     }
 
+    /**
+     * Body is optional. Empty/missing → caller is the only participant. Pass
+     * a list of household member ids to record "we did it together".
+     */
     @PostMapping("/{id}/complete")
     public ChoreDto complete(
         @AuthenticationPrincipal SamboPrincipal principal,
+        @PathVariable UUID id,
+        @RequestBody(required = false) CompleteChoreRequest req
+    ) {
+        return choreService.complete(id, req == null ? null : req.userIds(), principal);
+    }
+
+    @PostMapping("/{id}/archive")
+    public ChoreDto archive(
+        @AuthenticationPrincipal SamboPrincipal principal,
         @PathVariable UUID id
     ) {
-        return choreService.complete(id, principal);
+        return choreService.archive(id, principal.householdId());
+    }
+
+    @PostMapping("/{id}/unarchive")
+    public ChoreDto unarchive(
+        @AuthenticationPrincipal SamboPrincipal principal,
+        @PathVariable UUID id
+    ) {
+        return choreService.unarchive(id, principal.householdId());
     }
 
     @DeleteMapping("/{id}")

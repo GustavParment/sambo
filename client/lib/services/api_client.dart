@@ -39,6 +39,10 @@ class ApiClient {
     return _decodeObject(res);
   }
 
+  Future<void> putJson(String path, {Object? body}) async {
+    await _send('PUT', path, body: body);
+  }
+
   Future<Map<String, dynamic>> deleteJson(String path) async {
     final res = await _send('DELETE', path);
     return res.body.isEmpty ? const {} : _decodeObject(res);

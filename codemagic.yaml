@@ -1,0 +1,100 @@
+# Codemagic CI/CD for the Sambo Flutter app — iOS → TestFlight pipeline.
+#
+# What you need configured in the Codemagic UI (one-time):
+#   1. Connect this repo to Codemagic (Apps → Add application).
+#   2. Teams → Integrations → Developer Portal → upload your App Store
+#      Connect API Key (.p8 + Key ID + Issuer ID). Name it `sambo_appstore`.
+#   3. (Optional) Environment groups → create `sambo_secrets` with:
+#        GOOGLE_SERVER_CLIENT_ID = 422660998581-lop4...apps.googleusercontent.com
+#        BACKEND_BASE_URL        = https://sambo-api-6d4q4hcmqq-lz.a.run.app
+#      They aren't truly secret (they end up in the IPA either way) but
+#      keeping them out of git makes URL changes a UI tweak instead of a PR.
+#
+# After that, push to main triggers an automatic build, or hit "Start build"
+# in the Codemagic UI manually.
+
+workflows:
+  ios-testflight:
+    name: Sambo · iOS TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    integrations:
+      app_store_connect: sambo_appstore
+
+    environment:
+      groups:
+        - sambo_secrets         # GOOGLE_SERVER_CLIENT_ID, BACKEND_BASE_URL
+      vars:
+        BUNDLE_ID: com.sambo.sambo
+        APP_STORE_APP_ID: 6765686280   # from App Store Connect URL of the app
+        XCODE_WORKSPACE: Runner.xcworkspace
+        XCODE_SCHEME: Runner
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
+
+    scripts:
+      - name: Set up code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Compute next build number
+        script: |
+          # TestFlight rejects duplicate build numbers per version, so we
+          # always bump to (latest on TestFlight) + 1.
+          LATEST=$(app-store-connect get-latest-testflight-build-number \
+            "$APP_STORE_APP_ID" || echo 0)
+          NEXT=$((LATEST + 1))
+          echo "BUILD_NUMBER=$NEXT" >> $CM_ENV
+          echo "Next build number: $NEXT"
+
+      - name: Flutter packages
+        script: |
+          cd client
+          flutter pub get
+
+      - name: CocoaPods install
+        script: |
+          cd client/ios
+          pod install
+
+      - name: Build IPA
+        script: |
+          cd client
+          flutter build ipa --release \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="$GOOGLE_SERVER_CLIENT_ID" \
+            --dart-define=BACKEND_BASE_URL="$BACKEND_BASE_URL" \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - client/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # Optional: list of internal beta groups to push the build to
+        # automatically. Create them first in App Store Connect →
+        # TestFlight → Internal Testing.
+        # beta_groups:
+        #   - Internal
+        # If you want a release-notes file picked up:
+        # changelog: "$CM_BUILD_DIR/CHANGELOG_LATEST.md"

@@ -1,0 +1,63 @@
+# Cloud Build pipeline for Sambo backend.
+#
+# Triggered manually (gcloud builds submit) or wired to a GitHub trigger
+# later. The deploy step runs in the build container and uses the Cloud
+# Build service account, which needs roles/run.admin + roles/iam.serviceAccountUser
+# (grant once in IAM console).
+
+substitutions:
+  _REGION: europe-north1
+  _SERVICE: sambo-api
+  _REPO: sambo
+  _INSTANCE: sambo-db
+  _DB_NAME: sambo
+  _DB_USER: sambo
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 1. Build image with Maven multi-stage Dockerfile.
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+      - server
+
+  # 2. Push both tags.
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args: [push, --all-tags, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}']
+
+  # 3. Deploy to Cloud Run with the freshly-pushed SHA tag.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --add-cloudsql-instances=$PROJECT_ID:${_REGION}:${_INSTANCE}
+      - --memory=512Mi
+      - --cpu=1
+      - --min-instances=0
+      - --max-instances=5
+      - --port=8080
+      - --timeout=60
+      - --set-env-vars=DB_URL=jdbc:postgresql:///${_DB_NAME}?cloudSqlInstance=$PROJECT_ID:${_REGION}:${_INSTANCE}&socketFactory=com.google.cloud.sql.postgres.SocketFactory
+      - --set-env-vars=DB_USER=${_DB_USER}
+      - --set-secrets=DB_PASSWORD=sambo-db-password:latest
+      - --set-secrets=SAMBO_JWT_SECRET=sambo-jwt-secret:latest
+      - --set-secrets=SAMBO_GOOGLE_AUDIENCES=sambo-google-audiences:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest

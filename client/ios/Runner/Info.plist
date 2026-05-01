@@ -66,5 +66,23 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+
+	<!-- Google Sign-In on iOS — see lib/config.dart and server/.env for the
+	     server-side audience that must include this iOS client. -->
+	<key>GIDClientID</key>
+	<string>422660998581-3a1hrfun2o79qrdis005lfljueqk0uqd.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- Reversed iOS client ID. Used by Google Sign-In to call back
+				     into the app after the OAuth bottom sheet. -->
+				<string>com.googleusercontent.apps.422660998581-3a1hrfun2o79qrdis005lfljueqk0uqd</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

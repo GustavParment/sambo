@@ -16,4 +16,12 @@ public interface BankTransactionRepository extends JpaRepository<BankTransaction
     );
 
     List<BankTransaction> findByHouseholdIdAndCategoryIsNull(UUID householdId);
+
+    List<BankTransaction> findByHouseholdIdAndCategoryIdAndBookedDateBetweenOrderByBookedDateDescCreatedAtDesc(
+        UUID householdId, UUID categoryId, LocalDate from, LocalDate toInclusive
+    );
+
+    List<BankTransaction> findByHouseholdIdAndBookedDateBetweenOrderByBookedDateDescCreatedAtDesc(
+        UUID householdId, LocalDate from, LocalDate toInclusive
+    );
 }

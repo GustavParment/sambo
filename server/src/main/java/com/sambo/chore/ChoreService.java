@@ -14,50 +14,127 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
-/**
- * All chore operations are scoped by the authenticated principal's household.
- * Mutations on a chore that doesn't belong to the caller's household raise
- * {@link AccessDeniedException} → 403, never silently succeed and never expose
- * the cross-tenant chore.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChoreService {
 
     private final ChoreRepository choreRepo;
+    private final ChoreCompletionRepository completionRepo;
     private final HouseholdRepository householdRepo;
     private final AppUserRepository userRepo;
 
     @Transactional(readOnly = true)
     public List<ChoreDto> listForHousehold(UUID householdId) {
-        return choreRepo.findByHouseholdIdOrderByNameAsc(householdId).stream()
-            .map(ChoreDto::from)
+        return toDtos(choreRepo
+            .findByHouseholdIdAndArchivedAtIsNullOrderByNameAsc(householdId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChoreDto> listArchived(UUID householdId) {
+        return toDtos(choreRepo
+            .findByHouseholdIdAndArchivedAtIsNotNullOrderByArchivedAtDesc(householdId));
+    }
+
+    private List<ChoreDto> toDtos(List<Chore> chores) {
+        return chores.stream()
+            .map(c -> ChoreDto.from(
+                c,
+                completionRepo.findFirstByChoreIdOrderByCompletedAtDesc(c.getId()).orElse(null)))
             .toList();
     }
 
     @Transactional
-    public ChoreDto create(UUID householdId, String name) {
+    public ChoreDto create(UUID householdId, String name,
+                           Instant lastCompletedAt, Instant scheduledFor) {
         Household household = householdRepo.getReferenceById(householdId);
         Chore saved = choreRepo.save(Chore.builder()
             .household(household)
             .name(name.trim())
+            .scheduledFor(scheduledFor)
             .build());
-        log.info("Created chore '{}' in household={}", saved.getName(), householdId);
-        return ChoreDto.from(saved);
+
+        ChoreCompletion completion = null;
+        if (lastCompletedAt != null) {
+            completion = completionRepo.save(ChoreCompletion.builder()
+                .chore(saved)
+                .completedAt(lastCompletedAt)
+                .users(new HashSet<>())
+                .build());
+            saved.setLastCompletedAt(lastCompletedAt);
+        }
+        log.info("Created chore '{}' household={} baseline={} scheduledFor={}",
+            saved.getName(), householdId, lastCompletedAt, scheduledFor);
+        return ChoreDto.from(saved, completion);
+    }
+
+    /**
+     * Records a new completion event with the given participants. If
+     * {@code participantIds} is null/empty the caller is the sole completer
+     * (single-user fallback). Every participant id must belong to the same
+     * household as the caller — otherwise 403.
+     */
+    @Transactional
+    public ChoreDto complete(UUID choreId, List<UUID> participantIds, SamboPrincipal principal) {
+        Chore chore = loadOwned(choreId, principal.householdId());
+
+        Set<UUID> ids = new HashSet<>();
+        if (participantIds == null || participantIds.isEmpty()) {
+            ids.add(principal.userId());
+        } else {
+            ids.addAll(participantIds);
+        }
+
+        Set<AppUser> participants = new HashSet<>();
+        for (UUID id : ids) {
+            AppUser u = userRepo.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("User not found: " + id));
+            if (!u.getHousehold().getId().equals(principal.householdId())) {
+                throw new AccessDeniedException(
+                    "Participant does not belong to your household: " + id);
+            }
+            participants.add(u);
+        }
+
+        Instant now = Instant.now();
+        ChoreCompletion completion = completionRepo.save(ChoreCompletion.builder()
+            .chore(chore)
+            .completedAt(now)
+            .users(participants)
+            .build());
+        chore.setLastCompletedAt(now);
+
+        log.info("Chore {} completed by {} user(s) at {}",
+            choreId, participants.size(), now);
+        return ChoreDto.from(chore, completion);
+    }
+
+    /** Soft archive: preserves completion history, just hides from active list. */
+    @Transactional
+    public ChoreDto archive(UUID choreId, UUID householdId) {
+        Chore chore = loadOwned(choreId, householdId);
+        if (chore.getArchivedAt() == null) {
+            chore.setArchivedAt(Instant.now());
+        }
+        log.info("Archived chore {} in household {}", choreId, householdId);
+        return ChoreDto.from(
+            chore,
+            completionRepo.findFirstByChoreIdOrderByCompletedAtDesc(chore.getId()).orElse(null));
     }
 
     @Transactional
-    public ChoreDto complete(UUID choreId, SamboPrincipal principal) {
-        Chore chore = loadOwned(choreId, principal.householdId());
-        AppUser completer = userRepo.getReferenceById(principal.userId());
-        chore.setLastCompletedAt(Instant.now());
-        chore.setLastCompletedBy(completer);
-        log.info("Chore {} completed by {}", choreId, principal.email());
-        return ChoreDto.from(chore);
+    public ChoreDto unarchive(UUID choreId, UUID householdId) {
+        Chore chore = loadOwned(choreId, householdId);
+        chore.setArchivedAt(null);
+        log.info("Unarchived chore {} in household {}", choreId, householdId);
+        return ChoreDto.from(
+            chore,
+            completionRepo.findFirstByChoreIdOrderByCompletedAtDesc(chore.getId()).orElse(null));
     }
 
     @Transactional
@@ -71,10 +148,6 @@ public class ChoreService {
         Chore chore = choreRepo.findById(choreId)
             .orElseThrow(() -> new EntityNotFoundException("Chore not found: " + choreId));
         if (!chore.getHousehold().getId().equals(householdId)) {
-            // 403 not 404 — we *did* find it, we're just refusing.
-            // (404 would leak existence; an attacker probing for valid ids
-            // can already enumerate within their own household so neither
-            // option is perfect, but 403 keeps the check honest.)
             throw new AccessDeniedException("Chore does not belong to your household");
         }
         return chore;

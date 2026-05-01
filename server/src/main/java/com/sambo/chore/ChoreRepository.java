@@ -7,5 +7,7 @@ import java.util.UUID;
 
 public interface ChoreRepository extends JpaRepository<Chore, UUID> {
 
-    List<Chore> findByHouseholdIdOrderByNameAsc(UUID householdId);
+    List<Chore> findByHouseholdIdAndArchivedAtIsNullOrderByNameAsc(UUID householdId);
+
+    List<Chore> findByHouseholdIdAndArchivedAtIsNotNullOrderByArchivedAtDesc(UUID householdId);
 }
