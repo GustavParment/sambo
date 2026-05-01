@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+# Pre-commit hook: blocks commits that include .env files or any string that
+# gitleaks recognises as a secret (API keys, JWTs, AWS creds, GCP keys, etc.).
+#
+# Activated per-repo via:
+#   git config core.hooksPath scripts/git-hooks
+# (See README — that command runs once after `git clone`.)
+
+set -e
+
+# 1. Hard block any *.env file from being committed, even if .gitignore would
+#    have ignored it (defensive — `git add -f .env` would otherwise sneak it in).
+staged_envs="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)\.env(\..+)?$' || true)"
+if [ -n "$staged_envs" ]; then
+    echo "✗ commit blocked — .env files are not allowed in version control:"
+    echo "$staged_envs" | sed 's/^/    /'
+    echo ""
+    echo "  If this is intentional (e.g. a .env.example template), rename it"
+    echo "  and stage that instead."
+    exit 1
+fi
+
+# 2. Run gitleaks against staged content. --redact hides the actual leaked
+#    value in output so it doesn't end up in shell scrollback.
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "✗ gitleaks not installed — run: brew install gitleaks"
+    exit 1
+fi
+
+if ! gitleaks protect --staged --redact --no-banner -v; then
+    echo ""
+    echo "✗ commit blocked — gitleaks found likely secrets in staged changes."
+    echo "  If it's a false positive, add the line to .gitleaksignore or"
+    echo "  configure an allowlist in .gitleaks.toml."
+    exit 1
+fi
+
+exit 0

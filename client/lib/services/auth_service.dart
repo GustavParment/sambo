@@ -5,40 +5,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
-import 'config.dart';
-
-/// The authenticated user as returned by the backend. Mirrors `AuthUserDto`.
-class AuthUser {
-  final String id;
-  final String householdId;
-  final String email;
-  final String displayName;
-  final String role;
-
-  AuthUser({
-    required this.id,
-    required this.householdId,
-    required this.email,
-    required this.displayName,
-    required this.role,
-  });
-
-  factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
-        id: json['id'] as String,
-        householdId: json['householdId'] as String,
-        email: json['email'] as String,
-        displayName: json['displayName'] as String,
-        role: json['role'] as String,
-      );
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'householdId': householdId,
-        'email': email,
-        'displayName': displayName,
-        'role': role,
-      };
-}
+import 'package:sambo/config.dart';
+import 'package:sambo/core/http_exception.dart';
+import 'package:sambo/models/auth_user.dart';
 
 /// Owns the auth lifecycle: Google sign-in → backend exchange → JWT storage.
 /// The current user is exposed via [user] for the UI to listen to.
@@ -94,7 +63,8 @@ class AuthService {
 
     if (response.statusCode != 200) {
       throw HttpException(
-        'Backend rejected Google ID token: ${response.statusCode} ${response.body}',
+        'Backend rejected Google ID token: ${response.body}',
+        statusCode: response.statusCode,
       );
     }
 
@@ -114,11 +84,4 @@ class AuthService {
     _token = null;
     user.value = null;
   }
-}
-
-class HttpException implements Exception {
-  final String message;
-  HttpException(this.message);
-  @override
-  String toString() => message;
 }

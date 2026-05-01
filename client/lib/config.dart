@@ -9,10 +9,16 @@ class AppConfig {
   /// `sambo.google.audiences` MUST match this — otherwise the ID token's
   /// `aud` claim won't be accepted.
   ///
-  /// Override with: `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`
+  /// Web client IDs are not secret (they're extractable from any built APK/IPA);
+  /// security comes from the backend's audience check + the per-platform
+  /// SHA-1/bundle-ID binding registered in Google Cloud. Hardcoding the dev
+  /// value here means `flutter run` works without `--dart-define`.
+  ///
+  /// Override per-environment with: `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`
   static const String googleServerClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
-    defaultValue: 'PASTE_WEB_CLIENT_ID.apps.googleusercontent.com',
+    defaultValue:
+        '422660998581-lop49vn54npfri2o5asjcqlt6elt5si0.apps.googleusercontent.com',
   );
 
   /// Backend base URL. Android emulator can't reach the host's `localhost` —

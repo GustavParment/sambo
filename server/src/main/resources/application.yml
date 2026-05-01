@@ -42,4 +42,5 @@ sambo:
 logging:
   level:
     com.sambo: INFO
+    com.sambo.auth: DEBUG          # Verbose during dev so token-rejection reasons show up.
     org.hibernate.SQL: INFO
