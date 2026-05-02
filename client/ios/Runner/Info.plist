@@ -57,10 +57,12 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
+	<!-- iPad-specific orientations dropped — app is now iPhone-only via
+	     TARGETED_DEVICE_FAMILY = "1". App Store validation rejects an iPad
+	     app that doesn't list all four orientations (Slide Over / Split
+	     View support); declaring iPhone-only sidesteps the rule entirely
+	     and the runtime SystemChrome.setPreferredOrientations call still
+	     keeps everything portrait on iPhone. -->
 
 	<!-- Google Sign-In on iOS — see lib/config.dart and server/.env for the
 	     server-side audience that must include this iOS client. -->
