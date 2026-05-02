@@ -412,6 +412,43 @@ admin-only (delete chore, generate invite). Day-to-day operations
 (create/complete/archive chore, create/edit/delete budget categories) are
 open to all household members.
 
+### 3.5 Lazy loading & JOIN FETCH
+
+`spring.jpa.open-in-view: false` is set deliberately in `application.yml`.
+This means a Hibernate session lasts only as long as the surrounding
+`@Transactional` method — it is **not** held open until the HTTP response
+finishes rendering. The default of `true` is convenient but masks N+1
+problems and makes SQL fire at unpredictable times during serialization.
+
+The trade-off: lazy associations on entities (`@ManyToOne(fetch = LAZY)` and
+`@OneToMany`) are returned as **proxy objects**. Touching one outside a
+transaction throws `LazyInitializationException`. The pattern is:
+
+| Where you read it | What works |
+|---|---|
+| Inside a `@Transactional` service method | Touch lazy fields freely — session is open. |
+| Inside a controller (no `@Transactional`) | Use a `JOIN FETCH` query so everything you need is in the original SELECT. |
+| Inside a DTO mapper called from a controller | Same — lazy proxies will explode. |
+
+For controller endpoints that read a lazy association, write a repo method
+with explicit `JOIN FETCH`:
+
+```java
+@Query("SELECT m FROM HouseholdMembership m JOIN FETCH m.user WHERE m.household.id = :id")
+List<HouseholdMembership> findByHouseholdIdFetchingUser(UUID id);
+```
+
+Don't reach for `@Transactional` on the controller (turns the method into
+an OSIV-equivalent for one endpoint — defeats the point of having
+open-in-view off) and don't flip the entity's `fetch = EAGER` (slows down
+every other query that touches it). `JOIN FETCH` is one query, exactly the
+columns you need, no surprise SQL elsewhere.
+
+`HouseholdService.listMemberships` and `HouseholdController.members` both
+use the eager-fetch variants for this reason — they are the canonical
+examples to copy when you add a new controller endpoint that reads
+membership data.
+
 ---
 
 ## 4. Database — PostgreSQL 16
