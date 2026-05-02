@@ -27,9 +27,13 @@ public class InviteService {
     private static final Duration TTL = Duration.ofHours(24);
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /** Hard cap on how many households one user can be a member of. */
+    public static final int MAX_HOUSEHOLDS_PER_USER = 3;
+
     private final InviteRepository inviteRepo;
     private final HouseholdRepository householdRepo;
     private final AppUserRepository userRepo;
+    private final HouseholdMembershipRepository membershipRepo;
     private final JwtService jwtService;
 
     @Transactional
@@ -44,6 +48,12 @@ public class InviteService {
         return InviteDto.from(invite);
     }
 
+    /**
+     * Accept an invite and join the inviter's household. With M:N memberships
+     * the user keeps any other households they were already in — joining is
+     * additive. The newly joined household becomes the active one and a fresh
+     * JWT is minted to reflect that.
+     */
     @Transactional
     public AcceptInviteResponse accept(String rawCode, SamboPrincipal principal) {
         String code = rawCode == null ? "" : rawCode.toUpperCase().trim();
@@ -55,38 +65,37 @@ public class InviteService {
 
         AppUser user = userRepo.findById(principal.userId())
             .orElseThrow(() -> new EntityNotFoundException("User not found"));
-        Household oldHousehold = user.getHousehold();
         Household newHousehold = invite.getHousehold();
 
-        if (oldHousehold.getId().equals(newHousehold.getId())) {
+        if (membershipRepo
+            .findByUserIdAndHouseholdId(user.getId(), newHousehold.getId())
+            .isPresent()) {
             throw new InvalidInviteException("Du är redan med i det här hushållet");
         }
-        long otherUsersInOld = userRepo.countByHouseholdIdAndIdNot(
-            oldHousehold.getId(), user.getId());
-        if (otherUsersInOld > 0) {
-            // Refusing to orphan someone in their existing household.
+
+        if (membershipRepo.countByUserId(user.getId()) >= MAX_HOUSEHOLDS_PER_USER) {
             throw new InvalidInviteException(
-                "Du har andra medlemmar i ditt hushåll och kan inte byta utan att lämna dem.");
+                "Du kan max vara med i " + MAX_HOUSEHOLDS_PER_USER + " hushåll. "
+                    + "Lämna ett hushåll innan du går med i ett nytt.");
         }
 
-        // Move the user.
-        user.setHousehold(newHousehold);
-        user.setRole(Role.USER);
+        HouseholdMembership membership = membershipRepo.save(HouseholdMembership.builder()
+            .user(user)
+            .household(newHousehold)
+            .role(Role.USER)
+            .build());
+
+        // Switch active to the joined household.
+        user.setActiveHousehold(newHousehold);
         userRepo.save(user);
 
-        // Mark invite consumed.
         invite.setUsedAt(Instant.now());
         invite.setUsedBy(user);
 
-        // Old household has no users left → drop it (and its empty children
-        // via ON DELETE CASCADE on every FK pointing at household_id).
-        householdRepo.delete(oldHousehold);
-
-        // Issue a fresh JWT — the old one carries the wrong householdId + role.
-        String jwt = jwtService.issue(user);
+        String jwt = jwtService.issue(user, membership);
         log.info("User {} joined household {} via invite {}",
             user.getEmail(), newHousehold.getId(), invite.getCode());
-        return new AcceptInviteResponse(jwt, AuthUserDto.from(user));
+        return new AcceptInviteResponse(jwt, AuthUserDto.from(user, membership));
     }
 
     private String generateUniqueCode() {
