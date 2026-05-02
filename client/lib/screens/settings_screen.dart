@@ -195,13 +195,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _Hero(initials: _initials, user: widget.user),
           const SizedBox(height: 24),
-          const _SectionLabel('Hushåll'),
+          const _SectionLabel('Aktivt'),
           const SizedBox(height: 8),
-          _MembershipsCard(
-            memberships: _memberships,
-            onSwitch: _switchTo,
-            onLeave: _confirmLeave,
+          _ActiveHouseholdCard(
+            active: active,
+            isAdmin: isAdminOfActive,
             disabled: _busy,
+            onRename: _renameActive,
+            onInvite: _generateInvite,
+            onLeave: active == null ? null : () => _confirmLeave(active),
           ),
           const SizedBox(height: 24),
           const _SectionLabel('Lägg till'),
@@ -250,14 +252,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          const _SectionLabel('Aktiv'),
-          const SizedBox(height: 8),
-          _ActiveHouseholdSection(
-            active: active,
-            isAdmin: isAdminOfActive,
+          _SwitchHouseholdDropdown(
+            memberships: _memberships,
             disabled: _busy,
-            onRename: _renameActive,
-            onInvite: _generateInvite,
+            onSwitch: _switchTo,
           ),
           const SizedBox(height: 24),
           SizedBox(
@@ -274,61 +272,179 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// Collapsible details for the currently active household. Closed by default
-/// since renaming + inviting are rarely-used actions; the membership list
-/// above is what most users come to Settings for.
-class _ActiveHouseholdSection extends StatelessWidget {
+/// Always-visible card for the currently active household. This is where
+/// every detail-edit lives — rename, invite, leave — since "the active
+/// household" is what every other tab in the app operates on. Switching to
+/// a different one is a separate concern, handled by the dropdown below.
+class _ActiveHouseholdCard extends StatelessWidget {
   final HouseholdMembership? active;
   final bool isAdmin;
   final bool disabled;
   final VoidCallback onRename;
   final VoidCallback onInvite;
+  final VoidCallback? onLeave;
 
-  const _ActiveHouseholdSection({
+  const _ActiveHouseholdCard({
     required this.active,
     required this.isAdmin,
     required this.disabled,
     required this.onRename,
     required this.onInvite,
+    required this.onLeave,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final a = active;
     return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        // ExpansionTile draws a divider above its expanded content; suppress
-        // the default top/bottom dividers so it sits flush in the card.
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: false,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-          childrenPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.home_outlined),
-          title: Text(active?.householdName ?? 'Inget aktivt hushåll'),
-          subtitle: const Text('Visa detaljer'),
-          children: [
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.home_filled,
+                color: SamboAppColors.primary),
+            title: Text(
+              a?.householdName ?? 'Inget aktivt hushåll',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text('Aktivt hushåll'),
+          ),
+          const Divider(height: 0),
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('Byt hushållsnamn'),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: a != null && !disabled,
+            onTap: onRename,
+          ),
+          if (isAdmin) ...[
             const Divider(height: 0),
             ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Byt hushållsnamn'),
+              leading: const Icon(Icons.group_add_outlined),
+              title: const Text('Bjud in sambo'),
+              subtitle: const Text('Generera en kod att dela'),
               trailing: const Icon(Icons.chevron_right),
-              enabled: active != null && !disabled,
-              onTap: onRename,
+              enabled: !disabled,
+              onTap: onInvite,
             ),
-            if (isAdmin) ...[
-              const Divider(height: 0),
-              ListTile(
-                leading: const Icon(Icons.group_add_outlined),
-                title: const Text('Bjud in sambo'),
-                subtitle: const Text('Generera en kod att dela'),
-                trailing: const Icon(Icons.chevron_right),
-                enabled: !disabled,
-                onTap: onInvite,
-              ),
-            ],
           ],
-        ),
+          if (onLeave != null) ...[
+            const Divider(height: 0),
+            ListTile(
+              leading:
+                  const Icon(Icons.exit_to_app, color: Colors.redAccent),
+              title: const Text(
+                'Lämna hushåll',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+              enabled: !disabled,
+              onTap: onLeave,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Collapsed-by-default dropdown for switching active household. The header
+/// deliberately *does not* show the active household — its only job is to
+/// reveal the list of households the user can switch to. Tapping a row
+/// switches; nothing else happens here (rename / leave / invite all live in
+/// the always-visible AKTIVT card above).
+class _SwitchHouseholdDropdown extends StatefulWidget {
+  final List<HouseholdMembership>? memberships;
+  final bool disabled;
+  final void Function(HouseholdMembership) onSwitch;
+
+  const _SwitchHouseholdDropdown({
+    required this.memberships,
+    required this.disabled,
+    required this.onSwitch,
+  });
+
+  @override
+  State<_SwitchHouseholdDropdown> createState() =>
+      _SwitchHouseholdDropdownState();
+}
+
+class _SwitchHouseholdDropdownState extends State<_SwitchHouseholdDropdown> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final list = widget.memberships;
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.swap_horiz),
+            title: const Text('Byt hushåll'),
+            subtitle: list == null
+                ? null
+                : Text('${list.length} hushåll'),
+            trailing: AnimatedRotation(
+              turns: _open ? 0.5 : 0.0,
+              duration: const Duration(milliseconds: 180),
+              child: const Icon(Icons.expand_more),
+            ),
+            onTap: list == null || widget.disabled
+                ? null
+                : () => setState(() => _open = !_open),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            child: !_open || list == null
+                ? const SizedBox.shrink()
+                : Column(
+                    children: [
+                      const Divider(height: 0),
+                      for (final m in list)
+                        _SwitchRow(
+                          membership: m,
+                          disabled: widget.disabled,
+                          onTap: m.active
+                              ? null
+                              : () {
+                                  setState(() => _open = false);
+                                  widget.onSwitch(m);
+                                },
+                        ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  final HouseholdMembership membership;
+  final bool disabled;
+  final VoidCallback? onTap;
+  const _SwitchRow({
+    required this.membership,
+    required this.disabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final m = membership;
+    return ListTile(
+      enabled: !disabled,
+      onTap: onTap,
+      leading: Icon(
+        m.active ? Icons.check_circle : Icons.circle_outlined,
+        color: m.active ? SamboAppColors.primary : SamboAppColors.outline,
+      ),
+      title: Text(
+        m.householdName,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -390,135 +506,6 @@ class _Hero extends StatelessWidget {
             user.email,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: SamboAppColors.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MembershipsCard extends StatelessWidget {
-  final List<HouseholdMembership>? memberships;
-  final void Function(HouseholdMembership) onSwitch;
-  final void Function(HouseholdMembership) onLeave;
-  final bool disabled;
-
-  const _MembershipsCard({
-    required this.memberships,
-    required this.onSwitch,
-    required this.onLeave,
-    required this.disabled,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final list = memberships;
-    if (list == null) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Center(
-            child: SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
-            ),
-          ),
-        ),
-      );
-    }
-    if (list.isEmpty) {
-      return Card(
-        child: ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: const Text('Inga hushåll'),
-          subtitle: Text(
-            'Skapa ett nytt eller använd en inbjudan.',
-            style: TextStyle(color: SamboAppColors.onSurfaceVariant),
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      child: Column(
-        children: [
-          for (var i = 0; i < list.length; i++) ...[
-            if (i > 0) const Divider(height: 0),
-            _MembershipTile(
-              membership: list[i],
-              disabled: disabled,
-              onSwitch: () => onSwitch(list[i]),
-              onLeave: () => onLeave(list[i]),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _MembershipTile extends StatelessWidget {
-  final HouseholdMembership membership;
-  final VoidCallback onSwitch;
-  final VoidCallback onLeave;
-  final bool disabled;
-
-  const _MembershipTile({
-    required this.membership,
-    required this.onSwitch,
-    required this.onLeave,
-    required this.disabled,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final m = membership;
-    return ListTile(
-      enabled: !disabled,
-      onTap: m.active || disabled ? null : onSwitch,
-      leading: Icon(
-        m.active ? Icons.check_circle : Icons.circle_outlined,
-        color: m.active ? SamboAppColors.primary : SamboAppColors.outline,
-      ),
-      title: Text(
-        m.householdName,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: Text(
-        m.active ? 'Aktivt — tryck här för att stanna kvar' : 'Tryck för att byta till',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: SamboAppColors.onSurfaceVariant,
-        ),
-      ),
-      trailing: PopupMenuButton<String>(
-        enabled: !disabled,
-        onSelected: (v) {
-          if (v == 'leave') onLeave();
-          if (v == 'switch') onSwitch();
-        },
-        itemBuilder: (ctx) => [
-          if (!m.active)
-            const PopupMenuItem(
-              value: 'switch',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.swap_horiz),
-                title: Text('Byt till'),
-              ),
-            ),
-          const PopupMenuItem(
-            value: 'leave',
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.exit_to_app, color: Colors.redAccent),
-              title: Text('Lämna hushåll',
-                  style: TextStyle(color: Colors.redAccent)),
             ),
           ),
         ],
