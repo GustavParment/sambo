@@ -46,6 +46,7 @@ workflows:
     scripts:
       - name: Set up code signing
         script: |
+          cd client/ios
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
