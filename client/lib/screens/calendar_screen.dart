@@ -172,8 +172,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
               return _ErrorState(error: snap.error!);
             }
             final events = snap.data ?? const <CalendarEvent>[];
+            // Bottom padding clears the FAB so the last week-row stays tappable.
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 96),
               children: [
                 const _WeekdayHeader(),
                 _MonthGrid(
@@ -205,6 +207,21 @@ bool _sameDay(DateTime a, DateTime b) =>
 
 /// Local midnight of the same day.
 DateTime _stripTime(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// ISO 8601 week number — the week containing the year's first Thursday is
+/// week 1. Handles year-boundary cases correctly (e.g. Dec 31 2025 is
+/// week 1 of 2026 in ISO terms).
+int _isoWeek(DateTime date) {
+  final thursday = date.add(Duration(days: 4 - date.weekday));
+  final yearStart = DateTime(thursday.year, 1, 1);
+  final daysToFirstThursday = (4 - yearStart.weekday + 7) % 7;
+  final firstThursday = yearStart.add(Duration(days: daysToFirstThursday));
+  return thursday.difference(firstThursday).inDays ~/ 7 + 1;
+}
+
+/// Width of the leading "v" (week number) column. Compact so the 7 day cells
+/// keep most of the screen width on small phones (iPhone SE / 12 mini).
+const double _weekColumnWidth = 28;
 
 const _swedishMonths = [
   'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
@@ -269,22 +286,22 @@ class _WeekdayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     const labels = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
     final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(
+      color: SamboAppColors.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.5,
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
         children: [
+          SizedBox(
+            width: _weekColumnWidth,
+            child: Center(child: Text('v.', style: labelStyle)),
+          ),
           for (final l in labels)
             Expanded(
-              child: Center(
-                child: Text(
-                  l,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: SamboAppColors.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
+              child: Center(child: Text(l, style: labelStyle)),
             ),
         ],
       ),
@@ -327,6 +344,12 @@ class _MonthGrid extends StatelessWidget {
           for (int row = 0; row < 6; row++)
             Row(
               children: [
+                SizedBox(
+                  width: _weekColumnWidth,
+                  child: _WeekNumberCell(
+                    week: _isoWeek(start.add(Duration(days: row * 7))),
+                  ),
+                ),
                 for (int col = 0; col < 7; col++)
                   Expanded(
                     child: _buildCell(
@@ -362,9 +385,9 @@ class _MonthGrid extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           onTap: () => onDayTap(day, dayEvents),
           child: SizedBox(
-            height: 80,
+            height: 72,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -429,6 +452,28 @@ class _MonthGrid extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _WeekNumberCell extends StatelessWidget {
+  final int week;
+  const _WeekNumberCell({required this.week});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Center(
+        child: Text(
+          '$week',
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: SamboAppColors.onSurfaceVariant,
+          ),
+        ),
+      ),
     );
   }
 }

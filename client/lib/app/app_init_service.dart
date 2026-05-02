@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sambo/services/auth_service.dart';
 
@@ -16,6 +17,13 @@ class AppInitService {
     if (_initialized) return;
 
     WidgetsFlutterBinding.ensureInitialized();
+
+    // Portrait-only — chore + budget + calendar layouts assume a tall canvas.
+    // Native side (Info.plist + AndroidManifest) also restricts orientation,
+    // so iOS doesn't even draw a landscape splash screen on rotate.
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
 
     // 1. Auth — restores prior session (JWT + AuthUser) from secure storage,
     //    initialises Google Sign-In with our server client id.

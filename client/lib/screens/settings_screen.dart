@@ -204,7 +204,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             disabled: _busy,
           ),
           const SizedBox(height: 24),
-          const _SectionLabel('Lägg till hushåll'),
+          const _SectionLabel('Lägg till'),
           const SizedBox(height: 8),
           Card(
             child: Column(
