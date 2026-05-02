@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sambo/models/calendar_event.dart';
+import 'package:sambo/services/auth_service.dart';
 import 'package:sambo/services/calendar_service.dart';
 import 'package:sambo/theme/sambo_app_colors.dart';
 
@@ -14,36 +15,75 @@ class CalendarScreen extends StatefulWidget {
 
 class _CalendarScreenState extends State<CalendarScreen> {
   late DateTime _monthStart; // local midnight of day 1 of the visible month
-  late Future<List<CalendarEvent>> _future;
+  List<CalendarEvent>? _events;
+  Object? _error;
+  String? _lastHouseholdId;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _monthStart = DateTime(now.year, now.month, 1);
-    _future = _fetch();
+    _lastHouseholdId = AuthService.instance.user.value?.householdId;
+    AuthService.instance.user.addListener(_onUserChanged);
+    _events = _readCache();
+    _refreshInBackground();
   }
 
-  /// Loads enough events to cover the 6-week visible grid (which spills past
-  /// the month edges), so events on those overflow days still render.
-  Future<List<CalendarEvent>> _fetch() {
+  @override
+  void dispose() {
+    AuthService.instance.user.removeListener(_onUserChanged);
+    super.dispose();
+  }
+
+  void _onUserChanged() {
+    if (!mounted) return;
+    final newHh = AuthService.instance.user.value?.householdId;
+    if (newHh == _lastHouseholdId) return;
+    _lastHouseholdId = newHh;
+    setState(() {
+      _events = _readCache();
+      _error = null;
+    });
+    _refreshInBackground();
+  }
+
+  ({DateTime from, DateTime to}) _gridWindow() {
     final gridStart = _gridStart(_monthStart);
     final gridEnd = gridStart.add(const Duration(days: 42));
-    return CalendarService.instance.listInWindow(from: gridStart, to: gridEnd);
+    return (from: gridStart, to: gridEnd);
   }
 
-  Future<void> _refresh() async {
-    setState(() {
-      _future = _fetch();
-    });
-    await _future;
+  List<CalendarEvent>? _readCache() {
+    final w = _gridWindow();
+    return CalendarService.instance.cachedListInWindow(from: w.from, to: w.to);
   }
+
+  Future<void> _refreshInBackground() async {
+    final w = _gridWindow();
+    try {
+      final list = await CalendarService.instance
+          .listInWindow(from: w.from, to: w.to);
+      if (!mounted) return;
+      setState(() {
+        _events = list;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (_events == null) setState(() => _error = e);
+    }
+  }
+
+  Future<void> _refresh() => _refreshInBackground();
 
   void _shiftMonth(int delta) {
     setState(() {
       _monthStart = DateTime(_monthStart.year, _monthStart.month + delta, 1);
-      _future = _fetch();
+      _events = _readCache();
+      _error = null;
     });
+    _refreshInBackground();
   }
 
   Future<void> _showDaySheet(DateTime day, List<CalendarEvent> dayEvents) async {
@@ -162,18 +202,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: FutureBuilder<List<CalendarEvent>>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+        child: Builder(
+          builder: (context) {
+            if (_events == null && _error == null) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snap.hasError) {
-              return _ErrorState(error: snap.error!);
+            if (_events == null && _error != null) {
+              return _ErrorState(error: _error!);
             }
-            final events = snap.data ?? const <CalendarEvent>[];
+            final events = _events ?? const <CalendarEvent>[];
+            // Bottom padding clears the FAB so the last week-row stays tappable.
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 96),
               children: [
                 const _WeekdayHeader(),
                 _MonthGrid(
@@ -205,6 +246,21 @@ bool _sameDay(DateTime a, DateTime b) =>
 
 /// Local midnight of the same day.
 DateTime _stripTime(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// ISO 8601 week number — the week containing the year's first Thursday is
+/// week 1. Handles year-boundary cases correctly (e.g. Dec 31 2025 is
+/// week 1 of 2026 in ISO terms).
+int _isoWeek(DateTime date) {
+  final thursday = date.add(Duration(days: 4 - date.weekday));
+  final yearStart = DateTime(thursday.year, 1, 1);
+  final daysToFirstThursday = (4 - yearStart.weekday + 7) % 7;
+  final firstThursday = yearStart.add(Duration(days: daysToFirstThursday));
+  return thursday.difference(firstThursday).inDays ~/ 7 + 1;
+}
+
+/// Width of the leading "v" (week number) column. Compact so the 7 day cells
+/// keep most of the screen width on small phones (iPhone SE / 12 mini).
+const double _weekColumnWidth = 28;
 
 const _swedishMonths = [
   'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
@@ -269,22 +325,22 @@ class _WeekdayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     const labels = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
     final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(
+      color: SamboAppColors.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.5,
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
         children: [
+          SizedBox(
+            width: _weekColumnWidth,
+            child: Center(child: Text('v.', style: labelStyle)),
+          ),
           for (final l in labels)
             Expanded(
-              child: Center(
-                child: Text(
-                  l,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: SamboAppColors.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
+              child: Center(child: Text(l, style: labelStyle)),
             ),
         ],
       ),
@@ -312,12 +368,18 @@ class _MonthGrid extends StatelessWidget {
     final start = _gridStart(monthStart);
     final today = _stripTime(DateTime.now());
 
-    // Bucket events by their *local* start day. Multi-day events render only
-    // on their first day for now — good enough for MVP.
+    // Bucket events by their *local* day. Multi-day events span every day
+    // from startsAt through endsAt (inclusive) so a "9 maj → 23 maj" trip
+    // shows on every cell, not just May 9. _stripTime collapses to local
+    // midnight so the loop terminates regardless of the time-of-day stored.
     final Map<DateTime, List<CalendarEvent>> byDay = {};
     for (final e in events) {
-      final localDay = _stripTime(e.startsAt.toLocal());
-      byDay.putIfAbsent(localDay, () => []).add(e);
+      DateTime cursor = _stripTime(e.startsAt.toLocal());
+      final endDay = _stripTime(e.endsAt.toLocal());
+      while (!cursor.isAfter(endDay)) {
+        byDay.putIfAbsent(cursor, () => []).add(e);
+        cursor = cursor.add(const Duration(days: 1));
+      }
     }
 
     return Padding(
@@ -327,6 +389,12 @@ class _MonthGrid extends StatelessWidget {
           for (int row = 0; row < 6; row++)
             Row(
               children: [
+                SizedBox(
+                  width: _weekColumnWidth,
+                  child: _WeekNumberCell(
+                    week: _isoWeek(start.add(Duration(days: row * 7))),
+                  ),
+                ),
                 for (int col = 0; col < 7; col++)
                   Expanded(
                     child: _buildCell(
@@ -362,9 +430,9 @@ class _MonthGrid extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           onTap: () => onDayTap(day, dayEvents),
           child: SizedBox(
-            height: 80,
+            height: 72,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -429,6 +497,28 @@ class _MonthGrid extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _WeekNumberCell extends StatelessWidget {
+  final int week;
+  const _WeekNumberCell({required this.week});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Center(
+        child: Text(
+          '$week',
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: SamboAppColors.onSurfaceVariant,
+          ),
+        ),
+      ),
     );
   }
 }

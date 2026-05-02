@@ -16,19 +16,20 @@ public class AppUser {
     @GeneratedValue
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "household_id", nullable = false)
-    private Household household;
+    /**
+     * The household the user is currently "logged into". Nullable so that a
+     * user who has left every household can still authenticate and pick or
+     * create one. Membership is the source of truth — see HouseholdMembership.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "active_household_id")
+    private Household activeHousehold;
 
     @Column(nullable = false)
     private String email;
 
     @Column(nullable = false)
     private String displayName;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
-    private Role role;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

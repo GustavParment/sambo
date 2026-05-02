@@ -1,15 +1,35 @@
+import 'package:sambo/core/cache.dart';
 import 'package:sambo/models/chore.dart';
 import 'package:sambo/services/api_client.dart';
+import 'package:sambo/services/auth_service.dart';
 
 class ChoreService {
   ChoreService._();
   static final ChoreService instance = ChoreService._();
 
-  /// [archived] = true returns soft-archived chores (newest first); false (default)
-  /// returns active.
+  String? _cacheKey({required bool archived}) {
+    final hh = AuthService.instance.user.value?.householdId;
+    if (hh == null) return null;
+    return Cache.householdKey(hh, archived ? 'chores:archived' : 'chores:active');
+  }
+
+  /// Cached list — instant, returns null if no cache yet for the active
+  /// household. Pair with [list] for stale-while-revalidate.
+  List<Chore>? cachedList({bool archived = false}) {
+    final key = _cacheKey(archived: archived);
+    if (key == null) return null;
+    final raw = Cache.read<List<dynamic>>(key, (j) => j as List<dynamic>);
+    if (raw == null) return null;
+    return raw.map((e) => Chore.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Network fetch + cache update. [archived] = true returns soft-archived
+  /// chores (newest first); false (default) returns active.
   Future<List<Chore>> list({bool archived = false}) async {
     final path = archived ? '/api/chores?archived=true' : '/api/chores';
     final res = await ApiClient.instance.getJsonList(path);
+    final key = _cacheKey(archived: archived);
+    if (key != null) await Cache.write(key, res);
     return res.map((e) => Chore.fromJson(e as Map<String, dynamic>)).toList();
   }
 

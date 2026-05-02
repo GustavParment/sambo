@@ -1,14 +1,16 @@
 package com.sambo.auth.dto;
 
 import com.sambo.household.AppUser;
+import com.sambo.household.HouseholdMembership;
 import com.sambo.household.Role;
 
 import java.util.UUID;
 
 /**
- * The authenticated user's identity as returned to the client. Note that the
- * role is also baked into the signed JWT — the copy here is purely for the
- * client UI's convenience and is NOT what the server trusts for authorization.
+ * The authenticated user's identity as returned to the client. The role here
+ * is the user's role in their currently *active* household — it follows the
+ * active membership and changes when the user switches household. Server
+ * trust comes from the signed JWT, not from this DTO.
  */
 public record AuthUserDto(
     UUID id,
@@ -17,13 +19,19 @@ public record AuthUserDto(
     String displayName,
     Role role
 ) {
-    public static AuthUserDto from(AppUser u) {
+    /**
+     * @param activeMembership membership for {@code u.getActiveHousehold()};
+     *                         caller is responsible for passing the right one.
+     *                         May be null only if the user has no active
+     *                         household yet.
+     */
+    public static AuthUserDto from(AppUser u, HouseholdMembership activeMembership) {
         return new AuthUserDto(
             u.getId(),
-            u.getHousehold().getId(),
+            activeMembership == null ? null : activeMembership.getHousehold().getId(),
             u.getEmail(),
             u.getDisplayName(),
-            u.getRole()
+            activeMembership == null ? null : activeMembership.getRole()
         );
     }
 }

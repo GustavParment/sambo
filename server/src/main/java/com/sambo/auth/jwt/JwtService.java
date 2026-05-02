@@ -2,6 +2,7 @@ package com.sambo.auth.jwt;
 
 import com.sambo.auth.config.JwtProperties;
 import com.sambo.household.AppUser;
+import com.sambo.household.HouseholdMembership;
 import com.sambo.household.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -23,15 +24,17 @@ import java.util.UUID;
  *   sub          = AppUser.id  (UUID)
  *   iss / aud    = configured in sambo.jwt.*
  *   iat / exp    = issued + access-token-ttl
- *   householdId  = UUID — primary multi-tenancy key, baked in so the filter
- *                  doesn't need a DB hit on every request
+ *   householdId  = UUID — the *active* household for this session. Switching
+ *                  household issues a fresh JWT with a new value here.
  *   email        = denormalised for logging / convenience
- *   role         = "USER" | "ADMIN"
+ *   role         = "USER" | "ADMIN" — the user's role IN the active household
+ *                  (per HouseholdMembership). A user can be ADMIN in one
+ *                  household and USER in another; the claim follows the
+ *                  active one.
  * </pre>
  *
  * The role lives in the *signed* payload, so a USER cannot self-promote to
- * ADMIN by editing the token — the signature breaks. See SecurityConfig and
- * the JwtAuthenticationFilter for how this is enforced on every request.
+ * ADMIN by editing the token — the signature breaks.
  */
 @Service
 public class JwtService {
@@ -48,7 +51,12 @@ public class JwtService {
         this.key   = Keys.hmacShaKeyFor(Decoders.BASE64.decode(props.secret()));
     }
 
-    public String issue(AppUser user) {
+    /**
+     * Mint a JWT representing {@code user} authenticated into the given
+     * {@code activeMembership}. The membership pins both the household and
+     * the role baked into the token.
+     */
+    public String issue(AppUser user, HouseholdMembership activeMembership) {
         Instant now = Instant.now();
         return Jwts.builder()
             .subject(user.getId().toString())
@@ -56,9 +64,9 @@ public class JwtService {
             .audience().add(props.audience()).and()
             .issuedAt(Date.from(now))
             .expiration(Date.from(now.plus(props.accessTokenTtl())))
-            .claim(CLAIM_HOUSEHOLD, user.getHousehold().getId().toString())
+            .claim(CLAIM_HOUSEHOLD, activeMembership.getHousehold().getId().toString())
             .claim(CLAIM_EMAIL, user.getEmail())
-            .claim(CLAIM_ROLE, user.getRole().name())
+            .claim(CLAIM_ROLE, activeMembership.getRole().name())
             .signWith(key)
             .compact();
     }

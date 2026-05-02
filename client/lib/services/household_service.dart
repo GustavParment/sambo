@@ -1,6 +1,10 @@
+import 'package:sambo/core/cache.dart';
+import 'package:sambo/models/auth_user.dart';
 import 'package:sambo/models/chore.dart';
 import 'package:sambo/models/household.dart';
+import 'package:sambo/models/household_membership.dart';
 import 'package:sambo/services/api_client.dart';
+import 'package:sambo/services/auth_service.dart';
 
 class HouseholdService {
   HouseholdService._();
@@ -21,5 +25,72 @@ class HouseholdService {
     return res
         .map((e) => UserSummary.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  String? _membershipsKey() {
+    final uid = AuthService.instance.user.value?.id;
+    return uid == null ? null : Cache.userKey(uid, 'memberships');
+  }
+
+  List<HouseholdMembership>? cachedMemberships() {
+    final key = _membershipsKey();
+    if (key == null) return null;
+    final raw = Cache.read<List<dynamic>>(key, (j) => j as List<dynamic>);
+    if (raw == null) return null;
+    return raw
+        .map((e) => HouseholdMembership.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<HouseholdMembership>> memberships() async {
+    final res =
+        await ApiClient.instance.getJsonList('/api/household/memberships');
+    final key = _membershipsKey();
+    if (key != null) await Cache.write(key, res);
+    return res
+        .map((e) => HouseholdMembership.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Switch the active household. Backend mints a fresh JWT; we swap it in so
+  /// every subsequent request scopes to the new tenant.
+  Future<void> switchActive(String householdId) async {
+    final json = await ApiClient.instance
+        .postJson('/api/household/switch', body: {'householdId': householdId});
+    await _applySession(json);
+  }
+
+  /// Leave a household. If it was the active one and the user has another
+  /// household, the response carries a fresh JWT for the fallback. If they
+  /// just left their last household, the server returns no token — we sign
+  /// out so the user lands back on the login screen.
+  Future<void> leave(String householdId) async {
+    final json = await ApiClient.instance
+        .postJson('/api/household/leave', body: {'householdId': householdId});
+    // Drop all cache for the household we're leaving — chores, budget,
+    // calendar, etc. would otherwise linger on disk and re-surface if the
+    // user re-joined later (or if a different user with the same id... not
+    // possible, but keeping it tight).
+    await Cache.clearWhere((key) => key.startsWith('hh:$householdId:'));
+    final token = json['accessToken'] as String?;
+    if (token == null) {
+      await AuthService.instance.signOut();
+      return;
+    }
+    await _applySession(json);
+  }
+
+  /// Create a new household with the caller as ADMIN, automatically becoming
+  /// the new active household.
+  Future<void> create(String name) async {
+    final json =
+        await ApiClient.instance.postJson('/api/household', body: {'name': name});
+    await _applySession(json);
+  }
+
+  Future<void> _applySession(Map<String, dynamic> json) async {
+    final token = json['accessToken'] as String;
+    final user = AuthUser.fromJson(json['user'] as Map<String, dynamic>);
+    await AuthService.instance.setSession(token, user);
   }
 }

@@ -13,8 +13,13 @@ class ChoresScreen extends StatefulWidget {
 }
 
 class _ChoresScreenState extends State<ChoresScreen> {
-  late Future<List<Chore>> _future;
   bool _showingArchived = false;
+  List<Chore>? _chores;
+  Object? _error;
+
+  /// The household we last fetched against — used to detect a switch and
+  /// trigger a re-fetch from the cache for the new tenant.
+  String? _lastHouseholdId;
 
   /// Loaded lazily on first completion-sheet open. Cached so the picker
   /// doesn't refetch members on every chore tap.
@@ -23,24 +28,57 @@ class _ChoresScreenState extends State<ChoresScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _fetch();
+    _lastHouseholdId = AuthService.instance.user.value?.householdId;
+    AuthService.instance.user.addListener(_onUserChanged);
+    _chores = ChoreService.instance.cachedList(archived: _showingArchived);
+    _refreshInBackground();
   }
 
-  Future<List<Chore>> _fetch() =>
-      ChoreService.instance.list(archived: _showingArchived);
+  @override
+  void dispose() {
+    AuthService.instance.user.removeListener(_onUserChanged);
+    super.dispose();
+  }
 
-  Future<void> _refresh() async {
+  void _onUserChanged() {
+    if (!mounted) return;
+    final newHh = AuthService.instance.user.value?.householdId;
+    if (newHh == _lastHouseholdId) return;
+    _lastHouseholdId = newHh;
+    _members = null; // member roster is per-household
     setState(() {
-      _future = _fetch();
+      _chores = ChoreService.instance.cachedList(archived: _showingArchived);
+      _error = null;
     });
-    await _future;
+    _refreshInBackground();
   }
+
+  Future<void> _refreshInBackground() async {
+    try {
+      final list =
+          await ChoreService.instance.list(archived: _showingArchived);
+      if (!mounted) return;
+      setState(() {
+        _chores = list;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // Keep showing whatever cache we already have; only surface the error
+      // if there's nothing to render.
+      if (_chores == null) setState(() => _error = e);
+    }
+  }
+
+  Future<void> _refresh() => _refreshInBackground();
 
   void _toggleArchivedView() {
     setState(() {
       _showingArchived = !_showingArchived;
-      _future = _fetch();
+      _chores = ChoreService.instance.cachedList(archived: _showingArchived);
+      _error = null;
     });
+    _refreshInBackground();
   }
 
   Future<List<UserSummary>> _loadMembers() async {
@@ -186,16 +224,17 @@ class _ChoresScreenState extends State<ChoresScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refresh,
-              child: FutureBuilder<List<Chore>>(
-                future: _future,
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
+              child: Builder(
+                builder: (context) {
+                  // First-load with no cache: spinner. Otherwise cache renders
+                  // instantly and the network fetch updates in place.
+                  if (_chores == null && _error == null) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  if (snap.hasError) {
-                    return _ErrorState(error: snap.error!);
+                  if (_chores == null && _error != null) {
+                    return _ErrorState(error: _error!);
                   }
-                  final chores = snap.data ?? const <Chore>[];
+                  final chores = _chores ?? const <Chore>[];
                   if (chores.isEmpty) {
                     return _EmptyState(
                       archived: _showingArchived,
@@ -269,11 +308,14 @@ class _ChoreCard extends StatelessWidget {
     }
     final days = chore.daysSinceCompleted;
     if (days == null) {
+      // Auto-archive on completion means anything in the active list with no
+      // scheduledFor and no completion history is just "freshly created" —
+      // 'Aldrig' was technically correct but read confusingly.
       return (
-        stripe: SamboAppColors.outline,
-        pillBg: SamboAppColors.surfaceContainerHighest,
-        pillFg: SamboAppColors.onSurfaceVariant,
-        pillText: 'Aldrig'
+        stripe: SamboAppColors.tertiary,
+        pillBg: SamboAppColors.tertiary.withValues(alpha: 0.18),
+        pillFg: SamboAppColors.tertiary,
+        pillText: 'Ny'
       );
     }
     final text = switch (days) { 0 => 'Idag', 1 => 'Igår', _ => '$days d' };
@@ -368,8 +410,15 @@ class _ChoreCard extends StatelessWidget {
     final s = _stale();
     final by = _participantsLabel();
 
+    // Subtle wash of the staleness colour over the surface — enough to
+    // make the card glance-readable without competing with the stripe.
+    final cardBg = Color.alphaBlend(
+      s.stripe.withValues(alpha: archivedView ? 0.04 : 0.07),
+      SamboAppColors.surface,
+    );
+
     return Material(
-      color: SamboAppColors.surface,
+      color: cardBg,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -379,7 +428,7 @@ class _ChoreCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                width: 4,
+                width: 6,
                 decoration: BoxDecoration(
                   color: s.stripe,
                   borderRadius: const BorderRadius.horizontal(

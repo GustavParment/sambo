@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await AuthService.instance.signInWithGoogle();
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _busy = false);

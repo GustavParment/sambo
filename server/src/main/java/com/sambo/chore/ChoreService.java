@@ -5,6 +5,7 @@ import com.sambo.chore.dto.ChoreDto;
 import com.sambo.household.AppUser;
 import com.sambo.household.AppUserRepository;
 import com.sambo.household.Household;
+import com.sambo.household.HouseholdMembershipRepository;
 import com.sambo.household.HouseholdRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class ChoreService {
     private final ChoreCompletionRepository completionRepo;
     private final HouseholdRepository householdRepo;
     private final AppUserRepository userRepo;
+    private final HouseholdMembershipRepository membershipRepo;
 
     @Transactional(readOnly = true)
     public List<ChoreDto> listForHousehold(UUID householdId) {
@@ -94,7 +96,9 @@ public class ChoreService {
         for (UUID id : ids) {
             AppUser u = userRepo.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("User not found: " + id));
-            if (!u.getHousehold().getId().equals(principal.householdId())) {
+            if (membershipRepo
+                .findByUserIdAndHouseholdId(id, principal.householdId())
+                .isEmpty()) {
                 throw new AccessDeniedException(
                     "Participant does not belong to your household: " + id);
             }

@@ -50,30 +50,35 @@ client/lib/
 ├── config.dart                     compile-time constants (Google Web client ID, backend URL)
 ├── app/
 │   ├── app.dart                    SamboApp — MaterialApp.router root
-│   ├── app_init_service.dart       startup orchestrator (auth restore, future hooks)
+│   ├── app_init_service.dart       startup: orientation lock, Cache.init, auth restore
 │   └── router.dart                 go_router config + auth-driven redirect
 ├── core/
-│   └── http_exception.dart         shared HTTP error type with statusCode
+│   ├── http_exception.dart         shared HTTP error type with statusCode
+│   └── cache.dart                  TTL-aware JSON cache (shared_preferences-backed)
 ├── models/                         pure data, no logic
-│   ├── auth_user.dart
+│   ├── auth_user.dart              householdId/role nullable (between-households edge case)
 │   ├── budget.dart                 BudgetCategory, CategoryStatus, MonthlyOverview, Transaction
+│   ├── calendar_event.dart         CalendarEvent + CalendarColors palette
 │   ├── chore.dart                  Chore + UserSummary
 │   ├── household.dart              Household (id + name)
+│   ├── household_membership.dart   per-(user, household, role) tuple, with active flag
 │   └── invite.dart
 ├── services/                       business logic & singletons
 │   ├── api_client.dart             central HTTP wrapper (auth header + 401 → signOut)
-│   ├── auth_service.dart           Google sign-in + JWT storage + setSession
-│   ├── budget_service.dart         /api/budget/** wrapper
-│   ├── chore_service.dart          /api/chores/** wrapper
-│   ├── household_service.dart      /api/household/{,/members} wrapper
+│   ├── auth_service.dart           Google sign-in + JWT storage + setSession + Cache.clearAll
+│   ├── budget_service.dart         /api/budget/** wrapper, cached overview + categories + tx
+│   ├── calendar_service.dart       /api/calendar/** wrapper, cached per-window
+│   ├── chore_service.dart          /api/chores/** wrapper, cached active+archived
+│   ├── household_service.dart      /api/household/** wrapper, cached memberships
 │   └── invite_service.dart         /api/invites/** wrapper, calls AuthService.setSession on accept
 ├── screens/                        one widget per screen
 │   ├── login_screen.dart           hero login with logo + radial-gradient backdrop
 │   ├── home_shell.dart             post-login chrome (NavigationBar + IndexedStack)
 │   ├── budget_screen.dart          monthly view, month switcher, category cards
 │   ├── category_detail_screen.dart big metrics card, transaction list, edit/delete
+│   ├── calendar_screen.dart        month grid w/ ISO week column, multi-day events, event sheet
 │   ├── chores_screen.dart          segmented active/archived, completion sheet, schedule
-│   └── settings_screen.dart        avatar, household rename, invite generate/accept, sign out
+│   └── settings_screen.dart        AKTIVT card · Lägg till · Byt-hushåll dropdown · sign out
 └── theme/
     ├── sambo_app_colors.dart       palette (orange/navy)
     └── sambo_theme.dart            ThemeData (Inter, rounded cards, segmented button styling)
@@ -85,8 +90,10 @@ client/lib/
 |---|---|
 | `google_sign_in` ^7 | Native account picker on iOS/Android |
 | `flutter_secure_storage` ^10 | JWT + user record persisted across launches |
+| `shared_preferences` ^2 | API-response cache (`lib/core/cache.dart`) — instant cold-start render |
 | `http` ^1 | Backend API calls (wrapped in `ApiClient`) |
 | `go_router` ^17 | Declarative routes + auth-state-driven redirect |
+| `share_plus` ^12 | Native share sheet for invite codes (pinned to 12; 13+ conflicts with secure_storage's win32 transitive — we don't ship Windows so 12 is fine) |
 | `google_fonts` | Inter typography (downloaded at runtime, cached) |
 | `flutter_launcher_icons` (dev) | Generates platform icons from `assets/icons/app_icon.png` |
 
@@ -97,13 +104,61 @@ client/lib/
   user value (login, logout, accept invite) re-runs the redirect callback,
   which sends the user to `/` or `/login` automatically. Screens never call
   `Navigator.push` to handle auth transitions.
+- The same `AuthService.user` notifier is the source of truth for "active
+  household changed" — every data-loading screen subscribes in `initState`
+  and re-fetches when `user.value.householdId` flips. Switching household
+  via the dropdown / accepting an invite / leaving the active household
+  all funnel through `AuthService.setSession(...)` which fires the notifier.
 - Screen-local UI state lives in `StatefulWidget`s. There is no global state
   framework yet (Riverpod / Bloc) — added when data flow stops fitting
   into singletons.
 - Accepting an invite calls `AuthService.setSession(jwt, user)` with the
   fresh JWT issued by the backend (the old JWT carried the wrong householdId).
 
-### 2.4 Build-time configuration
+### 2.4 Caching — stale-while-revalidate
+
+Cold start should never block on the network. Every list-style endpoint
+(chores, budget overview/categories/transactions, calendar, memberships)
+goes through this pattern:
+
+```
+initState():
+   _data = service.cachedX();        // synchronous read from SharedPreferences
+   render whatever's there            // user sees real data within ~50 ms
+   refreshInBackground():
+       fresh = await service.X();    // network call
+       setState(_data = fresh);       // UI updates in place when ready
+```
+
+- **`lib/core/cache.dart`** is a thin TTL-aware JSON store on top of
+  `shared_preferences`. Keys are namespaced:
+  - `cache:hh:<householdId>:<suffix>` for household-scoped data
+  - `cache:user:<userId>:<suffix>` for user-scoped data (just memberships)
+  Stored value is `{"ts": "<ISO 8601>", "data": <json>}`; `Cache.read`
+  silently wipes any entry that fails to decode (so schema migrations
+  don't poison the cache forever).
+- **Services** expose a pair of methods per endpoint: `cachedX()` returns
+  the parsed model from disk synchronously (or `null` if no entry / stale)
+  and `X()` does the network fetch and overwrites the cache entry as a
+  side effect. Mutation endpoints stay one-shot — callers always
+  `_refresh()` after, which overwrites the cache anyway.
+- **Screens** don't use `FutureBuilder` for the primary data anymore. They
+  hold `_data` + `_error` in `State`, render directly, and call
+  `refreshInBackground()` from `initState`. The spinner only ever shows
+  on the first cold start of a brand-new install.
+- **Invalidation:**
+  - `AuthService.signOut()` → `Cache.clearAll()` — wipes everything.
+  - `HouseholdService.leave(id)` → `Cache.clearWhere(starts with hh:<id>:)` —
+    drops the leaving household's cache namespace.
+  - Switching active household: each screen swaps to `cachedX()` for the
+    new household via the `AuthService.user` listener, then re-fetches.
+  - Successful mutations: caller's `_refresh()` overwrites cache.
+
+No write-through, no LRU eviction, no max-size bookkeeping — entries
+accumulate one row per (household, endpoint, query-args). For MVP scale
+the storage cost is negligible (<100 KB across a typical user).
+
+### 2.5 Build-time configuration
 
 `String.fromEnvironment` reads `--dart-define` flags at compile time:
 
@@ -116,7 +171,7 @@ VS Code `launch.json` injects these for F5 debug. Defaults in `config.dart`
 are dev-safe (real Web client ID, plus per-platform `localhost`/`10.0.2.2`
 fallback for emulators).
 
-### 2.5 iOS-specific config
+### 2.6 iOS-specific config
 
 `ios/Runner/Info.plist` carries `GIDClientID` (the iOS OAuth client ID) plus
 a `CFBundleURLTypes` entry with the reversed iOS client ID as URL scheme
@@ -156,20 +211,30 @@ server/src/main/java/com/sambo/
 │       ├── GoogleLoginRequest.java
 │       └── LoginResponse.java
 ├── household/
-│   ├── Household.java                  entity (renamable)
-│   ├── HouseholdController.java        GET/PUT /api/household, GET /api/household/members
+│   ├── Household.java                       entity (renamable)
+│   ├── HouseholdController.java             GET/PUT /api/household + memberships/switch/leave/create
 │   ├── HouseholdRepository.java
-│   ├── AppUser.java                    entity (with role)
+│   ├── HouseholdService.java                listMemberships / switchActive / leave / create
+│   ├── HouseholdMembership.java             M:N entity (user, household, role, joined_at)
+│   ├── HouseholdMembershipId.java           composite-key class for @IdClass
+│   ├── HouseholdMembershipRepository.java
+│   ├── AppUser.java                         entity — active_household_id (nullable)
 │   ├── AppUserRepository.java
-│   ├── Role.java                       enum (USER, ADMIN)
-│   ├── Invite.java                     entity (code, expiresAt, usedAt)
+│   ├── Role.java                            enum (USER, ADMIN), per-membership now
+│   ├── Invite.java                          entity (code, expiresAt, usedAt)
 │   ├── InviteRepository.java
-│   ├── InviteService.java              generate code, accept (moves user, mints new JWT)
-│   ├── InviteController.java           POST /api/invites, POST /api/invites/accept
-│   ├── InvalidInviteException.java     → 400
+│   ├── InviteService.java                   generate code, accept (M:N + 3-cap)
+│   ├── InviteController.java                POST /api/invites, POST /api/invites/accept
+│   ├── InvalidInviteException.java          → 400
+│   ├── TooManyHouseholdsException.java      → 400 when crossing 3-cap
 │   └── dto/
 │       ├── HouseholdDto.java
+│       ├── HouseholdMembershipDto.java
+│       ├── HouseholdSessionResponse.java    jwt + user, used by switch/leave/create
 │       ├── UpdateHouseholdRequest.java
+│       ├── CreateHouseholdRequest.java
+│       ├── SwitchHouseholdRequest.java
+│       ├── LeaveHouseholdRequest.java
 │       ├── InviteDto.java
 │       ├── AcceptInviteRequest.java
 │       └── AcceptInviteResponse.java
@@ -291,22 +356,38 @@ token expires, `ApiClient` catches the resulting 401 and triggers
 `AuthService.signOut()`, which lets the router redirect back to `/login`.
 Refresh tokens are a TODO before public release.
 
-**Invite-driven JWT swap:** when a user accepts an invite via
-`POST /api/invites/accept`, they're moved to the inviter's household with
-`role=USER`. The response carries a *new* JWT (the old one carries the wrong
-householdId/role); Flutter swaps it via `AuthService.setSession(...)` so
-subsequent calls have the correct tenant context.
+**Membership-driven JWT swap.** Whenever the active household or its role
+changes — accept-invite, switch, leave, create — the response carries a
+freshly-minted JWT. Flutter swaps it via `AuthService.setSession(...)`, the
+same call chain Google login uses. The claim names in the JWT (`householdId`,
+`role`) stay stable across these flows; the *semantic* is "active household"
+and "role in active household". Old in-flight tokens still parse. The
+`AuthService.user` `ValueNotifier` fires on every swap, so:
+
+- The router's `refreshListenable` re-runs and routes to `/login` if signed
+  out, otherwise stays on `/`.
+- Each data-loading screen (chores, budget, calendar, settings) compares
+  `user.value.householdId` to the one it last fetched against; on mismatch
+  it swaps to the new household's cache and re-fetches.
+
+Hard cap of 3 memberships per user is enforced server-side on
+`/api/household` (create) and `/api/invites/accept`. Leaving the last
+membership returns no token — the client signs out and lands on `/login`.
 
 ### 3.4 Endpoints
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | POST | `/api/auth/google` | none | Google ID-token → server JWT |
-| GET | `/api/household` | JWT | The current user's household (id, name) |
-| PUT | `/api/household` | JWT | Rename household. Body `{name}` |
-| GET | `/api/household/members` | JWT | List household users (id, displayName) |
-| POST | `/api/invites` | JWT + ROLE_ADMIN | Generate 6-char invite code (24h TTL) |
-| POST | `/api/invites/accept` | JWT | Accept code → swap household, return new JWT |
+| GET | `/api/household` | JWT | The active household (id, name) |
+| PUT | `/api/household` | JWT | Rename active household. Body `{name}` |
+| GET | `/api/household/members` | JWT | List active-household users (id, displayName) |
+| GET | `/api/household/memberships` | JWT | All households the caller is in (id, name, role, joinedAt, active) |
+| POST | `/api/household` | JWT | Create new household + ADMIN membership (3-cap). Returns fresh JWT |
+| POST | `/api/household/switch` | JWT | Body `{householdId}` — change active household. Returns fresh JWT |
+| POST | `/api/household/leave` | JWT | Body `{householdId}` — drop membership. Returns fresh JWT (or null token if last household) |
+| POST | `/api/invites` | JWT + ROLE_ADMIN | Generate 6-char invite code (24h TTL) for active household |
+| POST | `/api/invites/accept` | JWT | Add membership to inviter's household, set active (3-cap). Returns fresh JWT |
 | GET | `/api/chores?archived=` | JWT | List chores; `archived=true` for soft-archived |
 | POST | `/api/chores` | JWT | Create. Body: `{name, lastCompletedAt?, scheduledFor?}` |
 | POST | `/api/chores/{id}/complete` | JWT | Body `{userIds?}` — multi-user. Empty = caller solo. |
@@ -331,6 +412,43 @@ admin-only (delete chore, generate invite). Day-to-day operations
 (create/complete/archive chore, create/edit/delete budget categories) are
 open to all household members.
 
+### 3.5 Lazy loading & JOIN FETCH
+
+`spring.jpa.open-in-view: false` is set deliberately in `application.yml`.
+This means a Hibernate session lasts only as long as the surrounding
+`@Transactional` method — it is **not** held open until the HTTP response
+finishes rendering. The default of `true` is convenient but masks N+1
+problems and makes SQL fire at unpredictable times during serialization.
+
+The trade-off: lazy associations on entities (`@ManyToOne(fetch = LAZY)` and
+`@OneToMany`) are returned as **proxy objects**. Touching one outside a
+transaction throws `LazyInitializationException`. The pattern is:
+
+| Where you read it | What works |
+|---|---|
+| Inside a `@Transactional` service method | Touch lazy fields freely — session is open. |
+| Inside a controller (no `@Transactional`) | Use a `JOIN FETCH` query so everything you need is in the original SELECT. |
+| Inside a DTO mapper called from a controller | Same — lazy proxies will explode. |
+
+For controller endpoints that read a lazy association, write a repo method
+with explicit `JOIN FETCH`:
+
+```java
+@Query("SELECT m FROM HouseholdMembership m JOIN FETCH m.user WHERE m.household.id = :id")
+List<HouseholdMembership> findByHouseholdIdFetchingUser(UUID id);
+```
+
+Don't reach for `@Transactional` on the controller (turns the method into
+an OSIV-equivalent for one endpoint — defeats the point of having
+open-in-view off) and don't flip the entity's `fetch = EAGER` (slows down
+every other query that touches it). `JOIN FETCH` is one query, exactly the
+columns you need, no surprise SQL elsewhere.
+
+`HouseholdService.listMemberships` and `HouseholdController.members` both
+use the eager-fetch variants for this reason — they are the canonical
+examples to copy when you add a new controller endpoint that reads
+membership data.
+
 ---
 
 ## 4. Database — PostgreSQL 16
@@ -338,17 +456,19 @@ open to all household members.
 ### 4.1 Schema
 
 ```
-household ─┬── app_user                             (1:N) — Google identity → role
+household ─┬── household_membership ── M:N ── app_user  — (user, household, role, joined_at)
            ├── invite                               (1:N) — short codes, expiresAt, usedAt/usedBy
            ├── household_category                   (1:N) — "Mat", "Hushåll", ...
            ├── budget_period                        (1:N) — (year, month) per household
            │      └── budget_allocation             (1:N) — budget per category per month
            ├── bank_transaction                     (1:N) — pulled from Tink (or hand-entered)
            ├── category_mapper                      (1:N) — keyword → category rule
+           ├── calendar_event                       (1:N) — shared events
            └── chore                                (1:N) — name, scheduledFor, archivedAt
                   └── chore_completion              (1:N) — append-only event log
                             └── chore_completion_user   (M:N → app_user) — who did it
 
+app_user.active_household_id → household              (N:1, nullable) — "currently logged into"
 app_user ── tink_credential                         (1:N) — encrypted access/refresh tokens
 chore_completion ── M:N ── app_user                 — multiple participants per event
 bank_transaction.category_id → household_category   (N:1, nullable for un-categorised)
@@ -358,6 +478,13 @@ VIEW v_budget_category_status:
    pre-aggregated from bank_transaction. Indexed query — Flutter gets a fully-rendered
    monthly overview in one HTTP call.
 ```
+
+**Household membership model.** A user belongs to *N* households via the
+`household_membership(user_id, household_id, role, joined_at)` join table —
+so role is per-membership, not per-user. The `app_user.active_household_id`
+points to whichever one the JWT is currently scoped to; switching is a
+backend round-trip that returns a fresh JWT (`POST /api/household/switch`).
+Hard-cap of 3 memberships per user, enforced on accept-invite and create.
 
 Sign convention for `bank_transaction.amount`: positive = expense, negative =
 income/refund. Tink ingest (when wired) inverts the bank's native sign so
@@ -378,6 +505,7 @@ runs them in order at every Spring Boot start-up.
 | V6 | `add_chore_scheduled_for` | `chore.scheduled_for` forward-looking deadline + partial index |
 | V7 | `manual_transactions` | `bank_transaction.tink_transaction_id` nullable, source/created-by columns for hand-entered purchases |
 | V8 | `calendar_event` | shared household calendar table with all-day support |
+| V9 | `household_membership` | M:N user↔household join, backfilled from existing `app_user.household_id`+`role`; rename to `active_household_id` (nullable); drop `app_user.role` |
 
 JPA's `ddl-auto: validate` enforces that the schema Flyway produces matches
 what the entity classes declare — drift is caught at start-up, not in prod.
@@ -500,7 +628,11 @@ local-Mac fallback.
 | ✅ done | **Cloud Run + Cloud SQL deployment** — `https://sambo-api-6d4q4hcmqq-lz.a.run.app` (europe-north1) backed by `sambo-db` Postgres 16 |
 | ✅ done | JWT secret + Google audiences + DB password in GCP Secret Manager |
 | ✅ done | iOS Google Sign-In end-to-end against Cloud Run prod |
-| ⏳ next | **TestFlight upload** — `codemagic.yaml` ready, awaiting Codemagic integration name + first push |
+| ✅ done | **TestFlight pipeline** — Codemagic auto-builds `main` → uploads via App Store Connect API key |
+| ✅ done | **Multi-household membership** (V9) — M:N user↔household, role per membership, 3-cap, switch/leave/create endpoints, fresh JWT on every change |
+| ✅ done | **Stale-while-revalidate cache** — `lib/core/cache.dart` over `shared_preferences`; cold start paints from disk in ~50 ms while a background fetch updates UI in place |
+| ✅ done | **Portrait-only orientation** — locked at three layers (Flutter, Info.plist, AndroidManifest) |
+| ✅ done | **Calendar** — ISO 8601 week-number column; multi-day events span every cell from startsAt to endsAt; `share_plus` for invite-code sharing |
 | ⏳ later | Tink integration: OAuth, account selection, transaction polling, encryption at rest |
 | ⏳ later | Sign in with Apple (mandatory for App Store publish) |
 | ⏳ later | Refresh tokens; tighten access-token TTL from 24h → 15m |
