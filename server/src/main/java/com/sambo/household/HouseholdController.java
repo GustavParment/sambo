@@ -57,7 +57,11 @@ public class HouseholdController {
     /** All users with a membership in the active household. */
     @GetMapping("/members")
     public List<UserSummaryDto> members(@AuthenticationPrincipal SamboPrincipal principal) {
-        return membershipRepo.findByHouseholdId(principal.householdId()).stream()
+        // JOIN FETCH variant — without it, m.getUser() returns a lazy proxy and
+        // .getDisplayName() in the DTO mapper trips LazyInitializationException
+        // (open-in-view is intentionally off — see application.yml).
+        return membershipRepo
+            .findByHouseholdIdFetchingUser(principal.householdId()).stream()
             .map(m -> UserSummaryDto.from(m.getUser()))
             .toList();
     }

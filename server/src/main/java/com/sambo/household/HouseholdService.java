@@ -35,7 +35,8 @@ public class HouseholdService {
     @Transactional(readOnly = true)
     public List<HouseholdMembershipDto> listMemberships(SamboPrincipal principal) {
         UUID activeId = principal.householdId();
-        return membershipRepo.findByUserId(principal.userId()).stream()
+        // JOIN FETCH avoids N+1 on the household side.
+        return membershipRepo.findByUserIdFetchingHousehold(principal.userId()).stream()
             .map(m -> HouseholdMembershipDto.from(m,
                 activeId != null && activeId.equals(m.getHousehold().getId())))
             .sorted(Comparator.comparing(HouseholdMembershipDto::joinedAt))
