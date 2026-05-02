@@ -46,13 +46,19 @@ workflows:
     scripts:
       - name: Set up code signing
         script: |
-          cd client/ios
+          set -e
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create
+          echo "=== Profiles fetched ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "(no profiles dir)"
           keychain add-certificates
+          cd client/ios
           xcode-project use-profiles
+          echo "=== Signing settings after use-profiles ==="
+          grep -n "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|PROVISIONING_PROFILE" \
+            Runner.xcodeproj/project.pbxproj | head -20
 
       - name: Compute next build number
         script: |
