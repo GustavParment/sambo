@@ -293,11 +293,20 @@ class _BudgetCard extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
               children: [
-                _BigStat(
-                  value: '${_kr(spent)} kr',
-                  label: 'spenderat',
+                Text(
+                  '${_kr(spent)} kr',
+                  style: theme.textTheme.headlineMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'spenderat',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: SamboAppColors.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),

@@ -64,7 +64,10 @@ class _HomeShellState extends State<HomeShell> {
             NavigationDestination(
               icon: Icon(Icons.settings_outlined),
               selectedIcon: Icon(Icons.settings),
-              label: 'Inställningar',
+              // Five tabs at 1x scale truncate 'Inställningar' on iPhone 12 /
+              // SE. 'Konto' covers user + household + sign-out neatly and
+              // keeps every label legible on small screens.
+              label: 'Konto',
             ),
           ],
         ),
