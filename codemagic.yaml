@@ -61,16 +61,6 @@ workflows:
           grep -n "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|PROVISIONING_PROFILE" \
             Runner.xcodeproj/project.pbxproj | head -20
 
-      - name: Compute next build number
-        script: |
-          # TestFlight rejects duplicate build numbers per version, so we
-          # always bump to (latest on TestFlight) + 1.
-          LATEST=$(app-store-connect get-latest-testflight-build-number \
-            "$APP_STORE_APP_ID" || echo 0)
-          NEXT=$((LATEST + 1))
-          echo "BUILD_NUMBER=$NEXT" >> $CM_ENV
-          echo "Next build number: $NEXT"
-
       - name: Flutter packages
         script: |
           cd client
@@ -83,9 +73,13 @@ workflows:
 
       - name: Build IPA
         script: |
+          # Build number comes from client/pubspec.yaml's `version: 1.0.0+N`.
+          # The previous auto-bump via app-store-connect was unreliable (the
+          # API sometimes returned 0, giving a duplicate of an existing
+          # TestFlight build). Bump pubspec by hand before each push to main
+          # — explicit and predictable.
           cd client
           flutter build ipa --release \
-            --build-number="$BUILD_NUMBER" \
             --dart-define=GOOGLE_SERVER_CLIENT_ID="$GOOGLE_SERVER_CLIENT_ID" \
             --dart-define=BACKEND_BASE_URL="$BACKEND_BASE_URL" \
             --export-options-plist=/Users/builder/export_options.plist
