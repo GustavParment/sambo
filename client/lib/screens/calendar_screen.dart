@@ -329,12 +329,18 @@ class _MonthGrid extends StatelessWidget {
     final start = _gridStart(monthStart);
     final today = _stripTime(DateTime.now());
 
-    // Bucket events by their *local* start day. Multi-day events render only
-    // on their first day for now — good enough for MVP.
+    // Bucket events by their *local* day. Multi-day events span every day
+    // from startsAt through endsAt (inclusive) so a "9 maj → 23 maj" trip
+    // shows on every cell, not just May 9. _stripTime collapses to local
+    // midnight so the loop terminates regardless of the time-of-day stored.
     final Map<DateTime, List<CalendarEvent>> byDay = {};
     for (final e in events) {
-      final localDay = _stripTime(e.startsAt.toLocal());
-      byDay.putIfAbsent(localDay, () => []).add(e);
+      DateTime cursor = _stripTime(e.startsAt.toLocal());
+      final endDay = _stripTime(e.endsAt.toLocal());
+      while (!cursor.isAfter(endDay)) {
+        byDay.putIfAbsent(cursor, () => []).add(e);
+        cursor = cursor.add(const Duration(days: 1));
+      }
     }
 
     return Padding(
