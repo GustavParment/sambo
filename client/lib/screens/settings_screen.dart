@@ -26,10 +26,32 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   List<HouseholdMembership>? _memberships;
   bool _busy = false;
+  String? _lastUserId;
 
   @override
   void initState() {
     super.initState();
+    _lastUserId = AuthService.instance.user.value?.id;
+    AuthService.instance.user.addListener(_onUserChanged);
+    // Cached memberships render instantly; the live fetch updates in place.
+    _memberships = HouseholdService.instance.cachedMemberships();
+    _loadMemberships();
+  }
+
+  @override
+  void dispose() {
+    AuthService.instance.user.removeListener(_onUserChanged);
+    super.dispose();
+  }
+
+  void _onUserChanged() {
+    if (!mounted) return;
+    final newId = AuthService.instance.user.value?.id;
+    if (newId == _lastUserId) return;
+    _lastUserId = newId;
+    setState(() {
+      _memberships = HouseholdService.instance.cachedMemberships();
+    });
     _loadMemberships();
   }
 
@@ -220,8 +242,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : 'Du blir ägare till det nya hushållet',
                     style: TextStyle(
                       color: _atCap
-                          ? SamboAppColors.onSurfaceVariant
-                              .withValues(alpha: 0.6)
+                          ? SamboAppColors.onSurfaceVariant.withValues(
+                              alpha: 0.6,
+                            )
                           : SamboAppColors.onSurfaceVariant,
                     ),
                   ),
@@ -239,8 +262,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : 'Gå med i ett befintligt hushåll',
                     style: TextStyle(
                       color: _atCap
-                          ? SamboAppColors.onSurfaceVariant
-                              .withValues(alpha: 0.6)
+                          ? SamboAppColors.onSurfaceVariant.withValues(
+                              alpha: 0.6,
+                            )
                           : SamboAppColors.onSurfaceVariant,
                     ),
                   ),
@@ -252,6 +276,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          const _SectionLabel('Hushåll'),
+          const SizedBox(height: 8),
           _SwitchHouseholdDropdown(
             memberships: _memberships,
             disabled: _busy,
@@ -301,12 +327,15 @@ class _ActiveHouseholdCard extends StatelessWidget {
       child: Column(
         children: [
           ListTile(
-            leading: const Icon(Icons.home_filled,
-                color: SamboAppColors.primary),
+            leading: const Icon(
+              Icons.home_filled,
+              color: SamboAppColors.primary,
+            ),
             title: Text(
               a?.householdName ?? 'Inget aktivt hushåll',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             subtitle: const Text('Aktivt hushåll'),
           ),
@@ -332,8 +361,7 @@ class _ActiveHouseholdCard extends StatelessWidget {
           if (onLeave != null) ...[
             const Divider(height: 0),
             ListTile(
-              leading:
-                  const Icon(Icons.exit_to_app, color: Colors.redAccent),
+              leading: const Icon(Icons.exit_to_app, color: Colors.redAccent),
               title: const Text(
                 'Lämna hushåll',
                 style: TextStyle(color: Colors.redAccent),
@@ -380,10 +408,8 @@ class _SwitchHouseholdDropdownState extends State<_SwitchHouseholdDropdown> {
         children: [
           ListTile(
             leading: const Icon(Icons.swap_horiz),
-            title: const Text('Byt hushåll'),
-            subtitle: list == null
-                ? null
-                : Text('${list.length} hushåll'),
+            title: const Text('Byt'),
+            subtitle: list == null ? null : Text('${list.length} hushåll'),
             trailing: AnimatedRotation(
               turns: _open ? 0.5 : 0.0,
               duration: const Duration(milliseconds: 180),
@@ -475,7 +501,8 @@ class _Hero extends StatelessWidget {
           ],
         ),
         border: Border.all(
-            color: SamboAppColors.outline.withValues(alpha: 0.3)),
+          color: SamboAppColors.outline.withValues(alpha: 0.3),
+        ),
       ),
       child: Column(
         children: [
@@ -498,8 +525,9 @@ class _Hero extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             user.displayName,
-            style: theme.textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
@@ -525,10 +553,10 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         text.toUpperCase(),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: SamboAppColors.onSurfaceVariant,
-              letterSpacing: 1.2,
-              fontWeight: FontWeight.w600,
-            ),
+          color: SamboAppColors.onSurfaceVariant,
+          letterSpacing: 1.2,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -582,9 +610,12 @@ class _RenameHouseholdSheetState extends State<_RenameHouseholdSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SheetHandle(),
-          Text('Hushållsnamn',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Hushållsnamn',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             'Visas i appen för alla medlemmar.',
@@ -605,10 +636,7 @@ class _RenameHouseholdSheetState extends State<_RenameHouseholdSheet> {
             onSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: 8),
-          FilledButton(
-            onPressed: _submit,
-            child: const Text('Spara'),
-          ),
+          FilledButton(onPressed: _submit, child: const Text('Spara')),
         ],
       ),
     );
@@ -652,9 +680,12 @@ class _CreateHouseholdSheetState extends State<_CreateHouseholdSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SheetHandle(),
-          Text('Nytt hushåll',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Nytt hushåll',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             'Du blir ägare och kan bjuda in andra med en kod.',
@@ -700,9 +731,12 @@ class _ConfirmLeaveSheet extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SheetHandle(),
-          Text('Lämna ${membership.householdName}?',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Lämna ${membership.householdName}?',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             'Du får inte längre se sysslor, budget eller kalender för det här '
@@ -713,9 +747,7 @@ class _ConfirmLeaveSheet extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(context, true),
             icon: const Icon(Icons.exit_to_app),
             label: const Text('Lämna hushåll'),
@@ -750,13 +782,15 @@ class _InviteCodeSheet extends StatelessWidget {
 
   Future<void> _share(BuildContext context) async {
     final box = context.findRenderObject() as RenderBox?;
-    await SharePlus.instance.share(ShareParams(
-      text: _shareText,
-      subject: 'Sambo-inbjudan',
-      sharePositionOrigin: box == null
-          ? null
-          : box.localToGlobal(Offset.zero) & box.size,
-    ));
+    await SharePlus.instance.share(
+      ShareParams(
+        text: _shareText,
+        subject: 'Sambo-inbjudan',
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
   }
 
   @override
@@ -768,9 +802,12 @@ class _InviteCodeSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _SheetHandle(),
-          Text('Inbjudan',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Inbjudan',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             'Dela koden med din sambo. Den måste loggas in på Sambo-appen och välja "Använd inbjudan".',
@@ -786,7 +823,8 @@ class _InviteCodeSheet extends StatelessWidget {
               color: SamboAppColors.primary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                  color: SamboAppColors.primary.withValues(alpha: 0.4)),
+                color: SamboAppColors.primary.withValues(alpha: 0.4),
+              ),
             ),
             child: Text(
               invite.code,
@@ -801,8 +839,9 @@ class _InviteCodeSheet extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             _formatExpiry(),
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: SamboAppColors.onSurfaceVariant),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: SamboAppColors.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 24),
           SizedBox(
@@ -820,9 +859,9 @@ class _InviteCodeSheet extends StatelessWidget {
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: invite.code));
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Kod kopierad')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Kod kopierad')));
               },
               icon: const Icon(Icons.copy),
               label: const Text('Kopiera kod'),
@@ -863,10 +902,11 @@ class _AcceptInviteSheetState extends State<_AcceptInviteSheet> {
       await InviteService.instance.accept(code);
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Du är nu med i hushållet')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Du är nu med i hushållet')));
     } catch (e) {
+      if (!mounted) return;
       var msg = e.toString();
       final i = msg.indexOf(': ');
       if (i > 0 && msg.startsWith('HTTP ')) msg = msg.substring(i + 2);
@@ -891,9 +931,12 @@ class _AcceptInviteSheetState extends State<_AcceptInviteSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SheetHandle(),
-          Text('Använd inbjudan',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Använd inbjudan',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             'Ange koden från din sambo. Du kan vara med i flera hushåll '
@@ -913,9 +956,7 @@ class _AcceptInviteSheetState extends State<_AcceptInviteSheet> {
               fontFamily: 'monospace',
               fontWeight: FontWeight.w700,
             ),
-            decoration: const InputDecoration(
-              hintText: 'XXXXXX',
-            ),
+            decoration: const InputDecoration(hintText: 'XXXXXX'),
             inputFormatters: [
               UpperCaseTextFormatter(),
               LengthLimitingTextInputFormatter(8),
@@ -924,9 +965,11 @@ class _AcceptInviteSheetState extends State<_AcceptInviteSheet> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(_error!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.error)),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: theme.colorScheme.error),
+            ),
           ],
           const SizedBox(height: 24),
           FilledButton.icon(
@@ -952,7 +995,9 @@ class _AcceptInviteSheetState extends State<_AcceptInviteSheet> {
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     return newValue.copyWith(text: newValue.text.toUpperCase());
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sambo/models/budget.dart';
 import 'package:sambo/screens/category_detail_screen.dart';
+import 'package:sambo/services/auth_service.dart';
 import 'package:sambo/services/budget_service.dart';
 import 'package:sambo/theme/sambo_app_colors.dart';
 
@@ -13,39 +14,75 @@ class BudgetScreen extends StatefulWidget {
 
 class _BudgetScreenState extends State<BudgetScreen> {
   late YearMonth _ym;
-  late Future<_BudgetPageData> _future;
+  _BudgetPageData? _data;
+  Object? _error;
+  String? _lastHouseholdId;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _ym = YearMonth(now.year, now.month);
-    _future = _fetch();
+    _lastHouseholdId = AuthService.instance.user.value?.householdId;
+    AuthService.instance.user.addListener(_onUserChanged);
+    _data = _readCache();
+    _refreshInBackground();
   }
 
-  Future<_BudgetPageData> _fetch() async {
-    final results = await Future.wait([
-      BudgetService.instance.listCategories(),
-      BudgetService.instance.getOverview(_ym.toIso()),
-    ]);
-    return _BudgetPageData(
-      categories: results[0] as List<BudgetCategory>,
-      overview: results[1] as MonthlyOverview,
-    );
+  @override
+  void dispose() {
+    AuthService.instance.user.removeListener(_onUserChanged);
+    super.dispose();
   }
 
-  Future<void> _refresh() async {
+  void _onUserChanged() {
+    if (!mounted) return;
+    final newHh = AuthService.instance.user.value?.householdId;
+    if (newHh == _lastHouseholdId) return;
+    _lastHouseholdId = newHh;
     setState(() {
-      _future = _fetch();
+      _data = _readCache();
+      _error = null;
     });
-    await _future;
+    _refreshInBackground();
   }
+
+  _BudgetPageData? _readCache() {
+    final cats = BudgetService.instance.cachedCategories();
+    final ov = BudgetService.instance.cachedOverview(_ym.toIso());
+    if (cats == null || ov == null) return null;
+    return _BudgetPageData(categories: cats, overview: ov);
+  }
+
+  Future<void> _refreshInBackground() async {
+    try {
+      final results = await Future.wait([
+        BudgetService.instance.listCategories(),
+        BudgetService.instance.getOverview(_ym.toIso()),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _data = _BudgetPageData(
+          categories: results[0] as List<BudgetCategory>,
+          overview: results[1] as MonthlyOverview,
+        );
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (_data == null) setState(() => _error = e);
+    }
+  }
+
+  Future<void> _refresh() => _refreshInBackground();
 
   void _shiftMonth(int delta) {
     setState(() {
       _ym = _ym.shifted(delta);
-      _future = _fetch();
+      _data = _readCache();
+      _error = null;
     });
+    _refreshInBackground();
   }
 
   Future<void> _showAddSheet() async {
@@ -109,16 +146,15 @@ class _BudgetScreenState extends State<BudgetScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: FutureBuilder<_BudgetPageData>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+        child: Builder(
+          builder: (context) {
+            if (_data == null && _error == null) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snap.hasError) {
-              return _ErrorState(error: snap.error!);
+            if (_data == null && _error != null) {
+              return _ErrorState(error: _error!);
             }
-            final data = snap.data!;
+            final data = _data!;
             if (data.categories.isEmpty) {
               return _EmptyState(onAdd: _showAddSheet);
             }

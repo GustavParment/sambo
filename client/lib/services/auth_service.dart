@@ -6,6 +6,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:sambo/config.dart';
+import 'package:sambo/core/cache.dart';
 import 'package:sambo/core/http_exception.dart';
 import 'package:sambo/models/auth_user.dart';
 
@@ -88,6 +89,10 @@ class AuthService {
     await GoogleSignIn.instance.signOut();
     await _storage.delete(key: _tokenKey);
     await _storage.delete(key: _userKey);
+    // Wipe every cached household/user JSON — it belongs to the previous
+    // session. Next sign-in will rebuild from scratch against fresh tenant
+    // scope.
+    await Cache.clearAll();
     _token = null;
     user.value = null;
   }

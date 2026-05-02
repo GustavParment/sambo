@@ -1,3 +1,4 @@
+import 'package:sambo/core/cache.dart';
 import 'package:sambo/models/auth_user.dart';
 import 'package:sambo/models/chore.dart';
 import 'package:sambo/models/household.dart';
@@ -26,9 +27,26 @@ class HouseholdService {
         .toList();
   }
 
+  String? _membershipsKey() {
+    final uid = AuthService.instance.user.value?.id;
+    return uid == null ? null : Cache.userKey(uid, 'memberships');
+  }
+
+  List<HouseholdMembership>? cachedMemberships() {
+    final key = _membershipsKey();
+    if (key == null) return null;
+    final raw = Cache.read<List<dynamic>>(key, (j) => j as List<dynamic>);
+    if (raw == null) return null;
+    return raw
+        .map((e) => HouseholdMembership.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<List<HouseholdMembership>> memberships() async {
     final res =
         await ApiClient.instance.getJsonList('/api/household/memberships');
+    final key = _membershipsKey();
+    if (key != null) await Cache.write(key, res);
     return res
         .map((e) => HouseholdMembership.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -49,6 +67,11 @@ class HouseholdService {
   Future<void> leave(String householdId) async {
     final json = await ApiClient.instance
         .postJson('/api/household/leave', body: {'householdId': householdId});
+    // Drop all cache for the household we're leaving — chores, budget,
+    // calendar, etc. would otherwise linger on disk and re-surface if the
+    // user re-joined later (or if a different user with the same id... not
+    // possible, but keeping it tight).
+    await Cache.clearWhere((key) => key.startsWith('hh:$householdId:'));
     final token = json['accessToken'] as String?;
     if (token == null) {
       await AuthService.instance.signOut();

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sambo/models/calendar_event.dart';
+import 'package:sambo/services/auth_service.dart';
 import 'package:sambo/services/calendar_service.dart';
 import 'package:sambo/theme/sambo_app_colors.dart';
 
@@ -14,36 +15,75 @@ class CalendarScreen extends StatefulWidget {
 
 class _CalendarScreenState extends State<CalendarScreen> {
   late DateTime _monthStart; // local midnight of day 1 of the visible month
-  late Future<List<CalendarEvent>> _future;
+  List<CalendarEvent>? _events;
+  Object? _error;
+  String? _lastHouseholdId;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _monthStart = DateTime(now.year, now.month, 1);
-    _future = _fetch();
+    _lastHouseholdId = AuthService.instance.user.value?.householdId;
+    AuthService.instance.user.addListener(_onUserChanged);
+    _events = _readCache();
+    _refreshInBackground();
   }
 
-  /// Loads enough events to cover the 6-week visible grid (which spills past
-  /// the month edges), so events on those overflow days still render.
-  Future<List<CalendarEvent>> _fetch() {
+  @override
+  void dispose() {
+    AuthService.instance.user.removeListener(_onUserChanged);
+    super.dispose();
+  }
+
+  void _onUserChanged() {
+    if (!mounted) return;
+    final newHh = AuthService.instance.user.value?.householdId;
+    if (newHh == _lastHouseholdId) return;
+    _lastHouseholdId = newHh;
+    setState(() {
+      _events = _readCache();
+      _error = null;
+    });
+    _refreshInBackground();
+  }
+
+  ({DateTime from, DateTime to}) _gridWindow() {
     final gridStart = _gridStart(_monthStart);
     final gridEnd = gridStart.add(const Duration(days: 42));
-    return CalendarService.instance.listInWindow(from: gridStart, to: gridEnd);
+    return (from: gridStart, to: gridEnd);
   }
 
-  Future<void> _refresh() async {
-    setState(() {
-      _future = _fetch();
-    });
-    await _future;
+  List<CalendarEvent>? _readCache() {
+    final w = _gridWindow();
+    return CalendarService.instance.cachedListInWindow(from: w.from, to: w.to);
   }
+
+  Future<void> _refreshInBackground() async {
+    final w = _gridWindow();
+    try {
+      final list = await CalendarService.instance
+          .listInWindow(from: w.from, to: w.to);
+      if (!mounted) return;
+      setState(() {
+        _events = list;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (_events == null) setState(() => _error = e);
+    }
+  }
+
+  Future<void> _refresh() => _refreshInBackground();
 
   void _shiftMonth(int delta) {
     setState(() {
       _monthStart = DateTime(_monthStart.year, _monthStart.month + delta, 1);
-      _future = _fetch();
+      _events = _readCache();
+      _error = null;
     });
+    _refreshInBackground();
   }
 
   Future<void> _showDaySheet(DateTime day, List<CalendarEvent> dayEvents) async {
@@ -162,16 +202,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: FutureBuilder<List<CalendarEvent>>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+        child: Builder(
+          builder: (context) {
+            if (_events == null && _error == null) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snap.hasError) {
-              return _ErrorState(error: snap.error!);
+            if (_events == null && _error != null) {
+              return _ErrorState(error: _error!);
             }
-            final events = snap.data ?? const <CalendarEvent>[];
+            final events = _events ?? const <CalendarEvent>[];
             // Bottom padding clears the FAB so the last week-row stays tappable.
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
