@@ -3,6 +3,7 @@ import 'package:sambo/models/auth_user.dart';
 import 'package:sambo/screens/budget_screen.dart';
 import 'package:sambo/screens/calendar_screen.dart';
 import 'package:sambo/screens/chores_screen.dart';
+import 'package:sambo/screens/overview_screen.dart';
 import 'package:sambo/screens/settings_screen.dart';
 
 /// Post-login chrome — bottom nav + IndexedStack so each tab keeps its
@@ -16,9 +17,12 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 1; // Land on Chores by default — that's the most-used tab.
+  // Översikt is the default landing tab — it's the at-a-glance summary the
+  // app should open on. Drilldown happens by tapping into Budget / Sysslor.
+  int _index = 0;
 
   late final List<Widget> _tabs = [
+    const OverviewScreen(),
     const BudgetScreen(),
     const ChoresScreen(),
     const CalendarScreen(),
@@ -37,6 +41,11 @@ class _HomeShellState extends State<HomeShell> {
           selectedIndex: _index,
           onDestinationSelected: (i) => setState(() => _index = i),
           destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.dashboard_outlined),
+              selectedIcon: Icon(Icons.dashboard),
+              label: 'Översikt',
+            ),
             NavigationDestination(
               icon: Icon(Icons.account_balance_wallet_outlined),
               selectedIcon: Icon(Icons.account_balance_wallet),

@@ -308,11 +308,14 @@ class _ChoreCard extends StatelessWidget {
     }
     final days = chore.daysSinceCompleted;
     if (days == null) {
+      // Auto-archive on completion means anything in the active list with no
+      // scheduledFor and no completion history is just "freshly created" —
+      // 'Aldrig' was technically correct but read confusingly.
       return (
-        stripe: SamboAppColors.outline,
-        pillBg: SamboAppColors.surfaceContainerHighest,
-        pillFg: SamboAppColors.onSurfaceVariant,
-        pillText: 'Aldrig'
+        stripe: SamboAppColors.tertiary,
+        pillBg: SamboAppColors.tertiary.withValues(alpha: 0.18),
+        pillFg: SamboAppColors.tertiary,
+        pillText: 'Ny'
       );
     }
     final text = switch (days) { 0 => 'Idag', 1 => 'Igår', _ => '$days d' };
@@ -407,8 +410,15 @@ class _ChoreCard extends StatelessWidget {
     final s = _stale();
     final by = _participantsLabel();
 
+    // Subtle wash of the staleness colour over the surface — enough to
+    // make the card glance-readable without competing with the stripe.
+    final cardBg = Color.alphaBlend(
+      s.stripe.withValues(alpha: archivedView ? 0.04 : 0.07),
+      SamboAppColors.surface,
+    );
+
     return Material(
-      color: SamboAppColors.surface,
+      color: cardBg,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -418,7 +428,7 @@ class _ChoreCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                width: 4,
+                width: 6,
                 decoration: BoxDecoration(
                   color: s.stripe,
                   borderRadius: const BorderRadius.horizontal(
