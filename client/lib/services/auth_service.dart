@@ -85,6 +85,13 @@ class AuthService {
     user.value = u;
   }
 
+  /// Update stored user profile without touching the JWT — used after
+  /// non-JWT-affecting changes like avatar colour.
+  Future<void> updateUserProfile(AuthUser u) async {
+    await _storage.write(key: _userKey, value: jsonEncode(u.toJson()));
+    user.value = u;
+  }
+
   Future<void> signOut() async {
     await GoogleSignIn.instance.signOut();
     await _storage.delete(key: _tokenKey);

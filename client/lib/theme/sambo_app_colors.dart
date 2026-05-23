@@ -50,6 +50,32 @@ class SamboAppColors {
   static const Color outline = Color(0xFF4A5568);
   static const Color shadow = Color(0xFF000000);
 
+  // ---- Avatar palette ------------------------------------------------------
+
+  /// Fixed colour options for user avatars. Stored as hex (#RRGGBB) in the
+  /// backend; use [colorToHex] / [hexToColor] to convert.
+  static const List<Color> avatarPalette = [
+    primary,                      // burnt orange (default)
+    Color(0xFF1976D2),            // cobalt blue
+    Color(0xFF388E3C),            // forest green
+    Color(0xFF7B1FA2),            // deep purple
+    Color(0xFF00796B),            // teal
+    Color(0xFFD32F2F),            // deep red
+    tertiary,                     // muted blue
+    Color(0xFF5D4037),            // warm brown
+  ];
+
+  static String colorToHex(Color c) {
+    return '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+  }
+
+  static Color? hexToColor(String? hex) {
+    if (hex == null || hex.length != 7 || !hex.startsWith('#')) return null;
+    final value = int.tryParse(hex.substring(1), radix: 16);
+    if (value == null) return null;
+    return Color(0xFF000000 | value);
+  }
+
   // ---- ColorScheme builder -----------------------------------------------
 
   /// Pre-built dark-mode `ColorScheme`. Pass to `ThemeData(colorScheme: ...)`.

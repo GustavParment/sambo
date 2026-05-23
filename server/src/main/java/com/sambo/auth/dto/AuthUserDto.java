@@ -8,7 +8,7 @@ import java.util.UUID;
 
 /**
  * The authenticated user's identity as returned to the client. The role here
- * is the user's role in their currently *active* household — it follows the
+ * is the user's role in their currently active household — it follows the
  * active membership and changes when the user switches household. Server
  * trust comes from the signed JWT, not from this DTO.
  */
@@ -17,7 +17,8 @@ public record AuthUserDto(
     UUID householdId,
     String email,
     String displayName,
-    Role role
+    Role role,
+    String avatarColor
 ) {
     /**
      * @param activeMembership membership for {@code u.getActiveHousehold()};
@@ -31,7 +32,8 @@ public record AuthUserDto(
             activeMembership == null ? null : activeMembership.getHousehold().getId(),
             u.getEmail(),
             u.getDisplayName(),
-            activeMembership == null ? null : activeMembership.getRole()
+            activeMembership == null ? null : activeMembership.getRole(),
+            u.getAvatarColor()
         );
     }
 }

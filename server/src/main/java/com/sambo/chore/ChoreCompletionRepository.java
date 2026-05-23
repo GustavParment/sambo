@@ -40,4 +40,21 @@ public interface ChoreCompletionRepository extends JpaRepository<ChoreCompletion
           AND cc.completedAt <  :to
     """)
     List<UUID> participantUserIdsForHouseholdInWindow(UUID householdId, Instant from, Instant to);
+
+    /**
+     * Completion count per user for a household within [from, to).
+     * Returns one row per user who participated in at least one completion
+     * event, sorted descending by count. Uses interface-based projection
+     * to avoid constructor expressions.
+     */
+    @Query("""
+        SELECT u.id AS userId, COUNT(cc) AS completionCount
+        FROM ChoreCompletion cc JOIN cc.users u
+        WHERE cc.chore.household.id = :householdId
+          AND cc.completedAt >= :from
+          AND cc.completedAt <  :to
+        GROUP BY u.id
+        ORDER BY COUNT(cc) DESC
+    """)
+    List<LeaderboardRow> leaderboardForHousehold(UUID householdId, Instant from, Instant to);
 }

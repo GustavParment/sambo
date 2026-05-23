@@ -11,12 +11,15 @@ class AuthUser {
   final String displayName;
   final String? role;
 
+  final String? avatarColor;
+
   AuthUser({
     required this.id,
     required this.householdId,
     required this.email,
     required this.displayName,
     required this.role,
+    this.avatarColor,
   });
 
   /// True when the user has an active household — most screens require this.
@@ -28,6 +31,7 @@ class AuthUser {
         email: json['email'] as String,
         displayName: json['displayName'] as String,
         role: json['role'] as String?,
+        avatarColor: json['avatarColor'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -36,5 +40,6 @@ class AuthUser {
         'email': email,
         'displayName': displayName,
         'role': role,
+        'avatarColor': avatarColor,
       };
 }

@@ -2,9 +2,11 @@ package com.sambo.chore;
 
 import com.sambo.auth.jwt.SamboPrincipal;
 import com.sambo.chore.dto.ChoreDto;
+import com.sambo.chore.dto.LeaderboardEntryDto;
 import com.sambo.household.AppUser;
 import com.sambo.household.AppUserRepository;
 import com.sambo.household.Household;
+import com.sambo.household.HouseholdMembership;
 import com.sambo.household.HouseholdMembershipRepository;
 import com.sambo.household.HouseholdRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -14,11 +16,17 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -146,6 +154,35 @@ public class ChoreService {
         Chore chore = loadOwned(choreId, householdId);
         choreRepo.delete(chore);
         log.info("Deleted chore {} from household {}", choreId, householdId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<LeaderboardEntryDto> leaderboard(UUID householdId, String period) {
+        Instant now = Instant.now();
+        Instant from = "month".equals(period)
+            ? now.atZone(ZoneOffset.UTC)
+                .with(TemporalAdjusters.firstDayOfMonth())
+                .truncatedTo(ChronoUnit.DAYS)
+                .toInstant()
+            : now.atZone(ZoneOffset.UTC)
+                .with(DayOfWeek.MONDAY)
+                .truncatedTo(ChronoUnit.DAYS)
+                .toInstant();
+
+        Map<UUID, AppUser> members = membershipRepo
+            .findByHouseholdIdFetchingUser(householdId).stream()
+            .collect(Collectors.toMap(
+                m -> m.getUser().getId(),
+                HouseholdMembership::getUser));
+
+        return completionRepo.leaderboardForHousehold(householdId, from, now).stream()
+            .filter(r -> members.containsKey(r.getUserId()))
+            .map(r -> {
+                AppUser u = members.get(r.getUserId());
+                return new LeaderboardEntryDto(
+                    u.getId(), u.getDisplayName(), u.getAvatarColor(), r.getCompletionCount());
+            })
+            .toList();
     }
 
     private Chore loadOwned(UUID choreId, UUID householdId) {

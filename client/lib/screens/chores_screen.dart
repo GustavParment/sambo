@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sambo/models/chore.dart';
+import 'package:sambo/screens/leaderboard_section.dart';
 import 'package:sambo/services/auth_service.dart';
 import 'package:sambo/services/chore_service.dart';
 import 'package:sambo/services/household_service.dart';
@@ -221,6 +222,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
               ),
             ),
           ),
+          if (!_showingArchived) const LeaderboardSection(),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refresh,

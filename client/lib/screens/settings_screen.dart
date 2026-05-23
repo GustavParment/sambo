@@ -1,12 +1,16 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sambo/models/auth_user.dart';
 import 'package:sambo/models/household_membership.dart';
 import 'package:sambo/models/invite.dart';
+import 'package:sambo/screens/household_avatar_picker_screen.dart';
 import 'package:sambo/services/auth_service.dart';
 import 'package:sambo/services/household_service.dart';
+import 'package:sambo/screens/household_members_screen.dart';
 import 'package:sambo/services/invite_service.dart';
+import 'package:sambo/services/user_service.dart';
 import 'package:sambo/theme/sambo_app_colors.dart';
 
 /// Hard cap on household memberships per user, mirroring the backend's
@@ -27,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<HouseholdMembership>? _memberships;
   bool _busy = false;
   String? _lastUserId;
+  String? _householdAvatarUrlOverride;
 
   @override
   void initState() {
@@ -51,6 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _lastUserId = newId;
     setState(() {
       _memberships = HouseholdService.instance.cachedMemberships();
+      _householdAvatarUrlOverride = null;
     });
     _loadMemberships();
   }
@@ -196,6 +202,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _pickAvatarColor() async {
+    final currentHex = AuthService.instance.user.value?.avatarColor;
+    final currentColor =
+        SamboAppColors.hexToColor(currentHex) ?? SamboAppColors.primary;
+
+    final picked = await showModalBottomSheet<Color>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _AvatarColorSheet(currentColor: currentColor),
+    );
+    if (picked == null || !mounted) return;
+
+    final hex = SamboAppColors.colorToHex(picked);
+    // Optimistic update — replace the user in AuthService without a JWT swap.
+    final current = AuthService.instance.user.value;
+    if (current != null) {
+      await AuthService.instance.updateUserProfile(
+        AuthUser(
+          id: current.id,
+          householdId: current.householdId,
+          email: current.email,
+          displayName: current.displayName,
+          role: current.role,
+          avatarColor: hex,
+        ),
+      );
+    }
+
+    // Persist to backend in background — silent failure is acceptable here.
+    try {
+      await UserService.instance.patchAvatarColor(hex);
+    } catch (_) {}
+  }
+
+  void _viewMembers() {
+    final a = _active;
+    if (a == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HouseholdMembersScreen(householdName: a.householdName),
+      ),
+    );
+  }
+
+  Future<void> _pickHouseholdAvatar() async {
+    final newUrl = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const HouseholdAvatarPickerScreen()),
+    );
+    if (newUrl != null && mounted) {
+      setState(() => _householdAvatarUrlOverride = newUrl);
+    }
+  }
+
   Future<void> _showAcceptSheet() async {
     await showModalBottomSheet(
       context: context,
@@ -215,17 +276,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          _Hero(initials: _initials, user: widget.user),
+          _Hero(
+            initials: _initials,
+            user: widget.user,
+            onPickColor: _pickAvatarColor,
+          ),
           const SizedBox(height: 24),
           const _SectionLabel('Aktivt'),
           const SizedBox(height: 8),
           _ActiveHouseholdCard(
             active: active,
+            avatarUrl: _householdAvatarUrlOverride ?? active?.householdAvatarUrl,
             isAdmin: isAdminOfActive,
             disabled: _busy,
             onRename: _renameActive,
             onInvite: _generateInvite,
+            onPickAvatar: active == null ? null : _pickHouseholdAvatar,
             onLeave: active == null ? null : () => _confirmLeave(active),
+            onViewMembers: active == null ? null : _viewMembers,
           ),
           const SizedBox(height: 24),
           const _SectionLabel('Lägg till'),
@@ -304,33 +372,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
 /// a different one is a separate concern, handled by the dropdown below.
 class _ActiveHouseholdCard extends StatelessWidget {
   final HouseholdMembership? active;
+  final String? avatarUrl;
   final bool isAdmin;
   final bool disabled;
   final VoidCallback onRename;
   final VoidCallback onInvite;
+  final VoidCallback? onPickAvatar;
   final VoidCallback? onLeave;
+  final VoidCallback? onViewMembers;
 
   const _ActiveHouseholdCard({
     required this.active,
+    required this.avatarUrl,
     required this.isAdmin,
     required this.disabled,
     required this.onRename,
     required this.onInvite,
+    required this.onPickAvatar,
     required this.onLeave,
+    required this.onViewMembers,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final a = active;
+    final url = avatarUrl;
     return Card(
       child: Column(
         children: [
           ListTile(
-            leading: const Icon(
-              Icons.home_filled,
-              color: SamboAppColors.primary,
-            ),
+            leading: url != null
+                ? ClipOval(
+                    child: CachedNetworkImage(
+                      imageUrl: url,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      placeholder: (context, _) => const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: CircleAvatar(
+                          backgroundColor: SamboAppColors.primary,
+                          child: Icon(Icons.home, color: SamboAppColors.onPrimary, size: 20),
+                        ),
+                      ),
+                      errorWidget: (context, url, err) => const CircleAvatar(
+                        backgroundColor: SamboAppColors.primary,
+                        child: Icon(Icons.home, color: SamboAppColors.onPrimary, size: 20),
+                      ),
+                    ),
+                  )
+                : const Icon(Icons.home_filled, color: SamboAppColors.primary),
             title: Text(
               a?.householdName ?? 'Inget aktivt hushåll',
               style: theme.textTheme.titleMedium?.copyWith(
@@ -338,6 +431,24 @@ class _ActiveHouseholdCard extends StatelessWidget {
               ),
             ),
             subtitle: const Text('Aktivt hushåll'),
+          ),
+          const Divider(height: 0),
+          ListTile(
+            leading: const Icon(Icons.image_outlined),
+            title: const Text('Hushållsavatar'),
+            subtitle: const Text('Välj en bild för hushållet'),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: a != null && !disabled,
+            onTap: onPickAvatar,
+          ),
+          const Divider(height: 0),
+          ListTile(
+            leading: const Icon(Icons.group_outlined),
+            title: const Text('Medlemmar'),
+            subtitle: const Text('Se vilka som är med i hushållet'),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: a != null && !disabled,
+            onTap: onViewMembers,
           ),
           const Divider(height: 0),
           ListTile(
@@ -483,7 +594,12 @@ class _SwitchRow extends StatelessWidget {
 class _Hero extends StatelessWidget {
   final String initials;
   final AuthUser user;
-  const _Hero({required this.initials, required this.user});
+  final VoidCallback onPickColor;
+  const _Hero({
+    required this.initials,
+    required this.user,
+    required this.onPickColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -506,20 +622,57 @@ class _Hero extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Container(
-            width: 84,
-            height: 84,
-            decoration: const BoxDecoration(
-              color: SamboAppColors.primary,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initials,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                color: SamboAppColors.onPrimary,
-                fontWeight: FontWeight.w700,
-              ),
+          GestureDetector(
+            onTap: onPickColor,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                ValueListenableBuilder<AuthUser?>(
+                  valueListenable: AuthService.instance.user,
+                  builder: (_, u, child) {
+                    final color =
+                        SamboAppColors.hexToColor(u?.avatarColor) ??
+                        SamboAppColors.primary;
+                    return Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        initials,
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          color: SamboAppColors.onPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: SamboAppColors.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: SamboAppColors.outline,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.palette_outlined,
+                      size: 14,
+                      color: SamboAppColors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
@@ -999,6 +1152,65 @@ class UpperCaseTextFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) {
     return newValue.copyWith(text: newValue.text.toUpperCase());
+  }
+}
+
+class _AvatarColorSheet extends StatelessWidget {
+  final Color currentColor;
+  const _AvatarColorSheet({required this.currentColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SheetHandle(),
+          Text(
+            'Avatarfärg',
+            style: theme.textTheme.headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            alignment: WrapAlignment.center,
+            children: SamboAppColors.avatarPalette.map((color) {
+              final isSelected = color.toARGB32() == currentColor.toARGB32();
+              return GestureDetector(
+                onTap: () => Navigator.pop(context, color),
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected
+                          ? SamboAppColors.onSurface
+                          : Colors.transparent,
+                      width: 3,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: isSelected
+                      ? const Icon(
+                          Icons.check,
+                          color: SamboAppColors.onPrimary,
+                          size: 22,
+                        )
+                      : null,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
   }
 }
 

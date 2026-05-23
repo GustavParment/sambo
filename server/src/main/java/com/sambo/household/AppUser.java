@@ -31,6 +31,9 @@ public class AppUser {
     @Column(nullable = false)
     private String displayName;
 
+    @Column(name = "avatar_color", length = 7)
+    private String avatarColor;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

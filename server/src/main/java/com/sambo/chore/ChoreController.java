@@ -4,6 +4,7 @@ import com.sambo.auth.jwt.SamboPrincipal;
 import com.sambo.chore.dto.ChoreDto;
 import com.sambo.chore.dto.CompleteChoreRequest;
 import com.sambo.chore.dto.CreateChoreRequest;
+import com.sambo.chore.dto.LeaderboardEntryDto;
 import com.sambo.household.Role;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.UUID;
@@ -86,6 +88,18 @@ public class ChoreController {
         @PathVariable UUID id
     ) {
         choreService.delete(id, principal.householdId());
+    }
+
+    @GetMapping("/leaderboard")
+    public List<LeaderboardEntryDto> leaderboard(
+        @AuthenticationPrincipal SamboPrincipal principal,
+        @RequestParam(defaultValue = "week") String period
+    ) {
+        if (!"week".equals(period) && !"month".equals(period)) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "period must be 'week' or 'month'");
+        }
+        return choreService.leaderboard(principal.householdId(), period);
     }
 
     /** Also expose ADMIN as a string constant in case other modules need it. */

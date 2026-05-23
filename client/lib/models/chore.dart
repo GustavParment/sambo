@@ -45,11 +45,13 @@ class Chore {
 class UserSummary {
   final String id;
   final String displayName;
+  final String? avatarColor;
 
-  UserSummary({required this.id, required this.displayName});
+  UserSummary({required this.id, required this.displayName, this.avatarColor});
 
   factory UserSummary.fromJson(Map<String, dynamic> json) => UserSummary(
         id: json['id'] as String,
         displayName: json['displayName'] as String,
+        avatarColor: json['avatarColor'] as String?,
       );
 }

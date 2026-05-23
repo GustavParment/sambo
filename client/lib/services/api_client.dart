@@ -43,6 +43,11 @@ class ApiClient {
     await _send('PUT', path, body: body);
   }
 
+  Future<Map<String, dynamic>> patchJson(String path, {Object? body}) async {
+    final res = await _send('PATCH', path, body: body);
+    return _decodeObject(res);
+  }
+
   Future<Map<String, dynamic>> deleteJson(String path) async {
     final res = await _send('DELETE', path);
     return res.body.isEmpty ? const {} : _decodeObject(res);
