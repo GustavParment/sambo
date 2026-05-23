@@ -3,6 +3,7 @@ package com.sambo.household;
 import com.sambo.auth.dto.AuthUserDto;
 import com.sambo.auth.jwt.JwtService;
 import com.sambo.auth.jwt.SamboPrincipal;
+import com.sambo.gcs.GcsStorageService;
 import com.sambo.household.dto.HouseholdMembershipDto;
 import com.sambo.household.dto.HouseholdSessionResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -30,6 +31,7 @@ public class HouseholdService {
     private final HouseholdRepository householdRepo;
     private final HouseholdMembershipRepository membershipRepo;
     private final JwtService jwtService;
+    private final GcsStorageService gcsService;
 
     /** Every household the user belongs to, with role + active flag. */
     @Transactional(readOnly = true)
@@ -37,8 +39,11 @@ public class HouseholdService {
         UUID activeId = principal.householdId();
         // JOIN FETCH avoids N+1 on the household side.
         return membershipRepo.findByUserIdFetchingHousehold(principal.userId()).stream()
-            .map(m -> HouseholdMembershipDto.from(m,
-                activeId != null && activeId.equals(m.getHousehold().getId())))
+            .map(m -> HouseholdMembershipDto.from(
+                m,
+                activeId != null && activeId.equals(m.getHousehold().getId()),
+                gcsService.avatarUrl(m.getHousehold().getAvatarKey())
+            ))
             .sorted(Comparator.comparing(HouseholdMembershipDto::joinedAt))
             .toList();
     }

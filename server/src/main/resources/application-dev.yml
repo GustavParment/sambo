@@ -1,0 +1,4 @@
+sambo:
+  gcs:
+    sign-urls: false
+    emulator-host: http://localhost:4443

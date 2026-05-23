@@ -3,6 +3,7 @@
 class HouseholdMembership {
   final String householdId;
   final String householdName;
+  final String? householdAvatarUrl;
   final String role;
   final DateTime joinedAt;
   final bool active;
@@ -10,6 +11,7 @@ class HouseholdMembership {
   HouseholdMembership({
     required this.householdId,
     required this.householdName,
+    this.householdAvatarUrl,
     required this.role,
     required this.joinedAt,
     required this.active,
@@ -21,6 +23,7 @@ class HouseholdMembership {
       HouseholdMembership(
         householdId: json['householdId'] as String,
         householdName: json['householdName'] as String,
+        householdAvatarUrl: json['householdAvatarUrl'] as String?,
         role: json['role'] as String,
         joinedAt: DateTime.parse(json['joinedAt'] as String),
         active: json['active'] as bool,

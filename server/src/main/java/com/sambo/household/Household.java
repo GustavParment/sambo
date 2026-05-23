@@ -19,6 +19,9 @@ public class Household {
     @Column(nullable = false)
     private String name;
 
+    @Column(name = "avatar_key", length = 10)
+    private String avatarKey;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

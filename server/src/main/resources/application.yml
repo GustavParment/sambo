@@ -39,6 +39,14 @@ sambo:
     # iOS + Android client IDs from Google Cloud Console.
     audiences: ${SAMBO_GOOGLE_AUDIENCES:placeholder.apps.googleusercontent.com}
 
+  gcs:
+    bucket-name: ${SAMBO_GCS_BUCKET:sambo-assets}
+    sign-urls: ${SAMBO_GCS_SIGN_URLS:true}
+    # Path to the SA JSON key file. In Cloud Run mount the Secret Manager secret
+    # as a volume at /secrets/gcs-key.json and set SAMBO_GCS_KEY_PATH accordingly.
+    key-path: ${SAMBO_GCS_KEY_PATH:/secrets/gcs-key.json}
+    emulator-host: ${SAMBO_GCS_EMULATOR_HOST:http://localhost:4443}
+
 logging:
   level:
     com.sambo: INFO

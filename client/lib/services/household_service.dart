@@ -20,6 +20,23 @@ class HouseholdService {
     return get();
   }
 
+  Future<Household> patchAvatar(String avatarKey) async {
+    final json = await ApiClient.instance
+        .patchJson('/api/household/avatar', body: {'avatarKey': avatarKey});
+    return Household.fromJson(json);
+  }
+
+  Future<List<({String key, String url})>> avatarOptions() async {
+    final res =
+        await ApiClient.instance.getJsonList('/api/household/avatar-options');
+    return res
+        .map((e) => (
+              key: (e as Map<String, dynamic>)['key'] as String,
+              url: e['url'] as String,
+            ))
+        .toList();
+  }
+
   Future<List<UserSummary>> members() async {
     final res = await ApiClient.instance.getJsonList('/api/household/members');
     return res

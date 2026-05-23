@@ -15,3 +15,6 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# Local fake-gcs emulator data
+server/fake-gcs-data/

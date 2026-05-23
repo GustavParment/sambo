@@ -61,7 +61,11 @@ gcloud run deploy "$SERVICE" \
   --set-env-vars "DB_USER=${DB_USER}" \
   --set-secrets "DB_PASSWORD=sambo-db-password:latest" \
   --set-secrets "SAMBO_JWT_SECRET=sambo-jwt-secret:latest" \
-  --set-secrets "SAMBO_GOOGLE_AUDIENCES=sambo-google-audiences:latest"
+  --set-secrets "SAMBO_GOOGLE_AUDIENCES=sambo-google-audiences:latest" \
+  --mount-secrets "/secrets/gcs-key.json=sambo-gcs-key:latest" \
+  --set-env-vars "SAMBO_GCS_KEY_PATH=/secrets/gcs-key.json" \
+  --set-env-vars "SAMBO_GCS_SIGN_URLS=true" \
+  --set-env-vars "SAMBO_GCS_BUCKET=sambo-assets"
 
 URL=$(gcloud run services describe "$SERVICE" \
   --region "$REGION" \
